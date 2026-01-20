@@ -1,6 +1,8 @@
 import sys
+import os
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
 from core import DrawingOverlay, ModernToolbar
 
 if __name__ == "__main__":
@@ -9,6 +11,12 @@ if __name__ == "__main__":
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     
     app = QApplication(sys.argv)
+    
+    # Uygulama ikonunu assets klasöründen yükle
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    icon_path = os.path.join(base_path, "Assets", "VIZIA.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     
     # Uygulama bileşenlerini oluştur
     overlay = DrawingOverlay()

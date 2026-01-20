@@ -1,11 +1,53 @@
 import os
 import datetime
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, 
-                             QSlider, QLabel, QFrame, QApplication)
-from PyQt5.QtGui import QPainter, QPen, QColor, QCursor, QPixmap, QPainterPath
+                             QSlider, QLabel, QFrame, QApplication, QDialog, QHBoxLayout)
+from PyQt5.QtGui import QPainter, QPen, QColor, QCursor, QPixmap, QPainterPath, QFont
 from PyQt5.QtCore import Qt, QPoint, QTimer, QStandardPaths
 from ui_components import ModernNotification, ModernColorPicker
 from text_widgets import StandaloneText
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Vizia - Hakkında")
+        self.setFixedSize(400, 500)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setStyleSheet("""
+            QDialog { background-color: #1c1c1e; border: 2px solid #3a3a3c; border-radius: 20px; }
+            QLabel { color: white; font-family: 'Segoe UI'; }
+        """)
+        
+        layout = QVBoxLayout(self)
+        
+        # Kapatma butonu
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(30, 30)
+        close_btn.setStyleSheet("background: #ff3b30; color: white; border-radius: 15px; font-weight: bold;")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn, 0, Qt.AlignRight)
+
+        # Başlık ve Görsel Alanı
+        title = QLabel("VIZIA PROJECT")
+        title.setFont(QFont('Segoe UI', 18, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        # İlerde görsel ekleyeceğin alan
+        self.image_label = QLabel("Görsel Buraya Gelecek")
+        self.image_label.setFixedSize(300, 150)
+        self.image_label.setStyleSheet("background: #2c2c2e; border-radius: 10px; color: #555;")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.image_label, 0, Qt.AlignCenter)
+
+        # Vizyon Metni
+        vision_text = QLabel("Vizyonun ve projenin detaylarını\nburada anlatabilirsin.")
+        vision_text.setWordWrap(True)
+        vision_text.setAlignment(Qt.AlignCenter)
+        vision_text.setStyleSheet("color: #ebebeb; font-size: 14px; margin: 20px;")
+        layout.addWidget(vision_text)
+        
+        layout.addStretch()
 
 class DrawingOverlay(QMainWindow):
     def __init__(self):
@@ -155,7 +197,7 @@ class ModernToolbar(QWidget):
 
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setFixedWidth(75); self.setFixedHeight(560) 
+        self.setFixedWidth(75); self.setFixedHeight(620) # Boyutu yeni butonlar için artırdım
         self.setStyleSheet("""
             QWidget { background-color: #1c1c1e; border-radius: 20px; border: 1.5px solid #3a3a3c; }
             QPushButton { background-color: #2c2c2e; color: white; border: none; border-radius: 10px; font-size: 18px; min-width: 38px; min-height: 38px; }
@@ -165,8 +207,21 @@ class ModernToolbar(QWidget):
             QSlider::handle:horizontal { background: #007aff; width: 12px; height: 12px; margin: -4px 0; border-radius: 6px; }
         """)
         layout = QVBoxLayout(self); layout.setContentsMargins(10, 12, 10, 10); layout.setSpacing(5) 
-        vizia = QLabel("VIZIA"); vizia.setAlignment(Qt.AlignCenter); layout.addWidget(vizia)
-        pen = QLabel("PEN"); pen.setAlignment(Qt.AlignCenter); pen.setStyleSheet("margin-top: -6px; margin-bottom: 5px;"); layout.addWidget(pen)
+
+        # Logo Alanı
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(base_path, "Assets", "VIZIA.ico")
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(logo_path)
+        if not logo_pixmap.isNull():
+            logo_label.setPixmap(logo_pixmap.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            logo_label.setText("VIZIA")
+        logo_label.setAlignment(Qt.AlignCenter)
+        logo_label.setStyleSheet("margin-top: 5px; margin-bottom: 10px;") # Aralığı açtım
+        layout.addWidget(logo_label)
+
+        # Butonlar
         self.btn_draw = self.create_btn("🖋", lambda: self.safe_change("pen", self.btn_draw))
         layout.addWidget(self.btn_draw, 0, Qt.AlignCenter)
         self.btn_eraser = self.create_btn("🧼", lambda: self.safe_change("eraser", self.btn_eraser))
@@ -176,19 +231,37 @@ class ModernToolbar(QWidget):
         self.btn_board.setStyleSheet("background-color: #ff3b30;"); layout.addWidget(self.btn_board, 0, Qt.AlignCenter)
         self.btn_move = self.create_btn("🖱", lambda: self.safe_change("move", self.btn_move))
         layout.addWidget(self.btn_move, 0, Qt.AlignCenter)
+        
         line = QFrame(); line.setFixedHeight(1); line.setStyleSheet("background-color: #3a3a3c; margin: 4px 0;"); layout.addWidget(line)
+        
         layout.addWidget(self.create_btn("↺", self.overlay.undo), 0, Qt.AlignCenter)
         btn_clear = self.create_btn("🗑️", self.overlay.clear_all); btn_clear.setStyleSheet("font-size: 20px;"); layout.addWidget(btn_clear, 0, Qt.AlignCenter)
         self.btn_shot = self.create_btn("📸", self.overlay.take_screenshot)
         self.btn_shot.setStyleSheet("background-color: #5856d6;"); layout.addWidget(self.btn_shot, 0, Qt.AlignCenter)
         self.btn_color = self.create_btn("⬤", self.select_color)
         self.btn_color.setStyleSheet(f"color: {self.overlay.current_color.name()}; font-size: 20px;"); layout.addWidget(self.btn_color, 0, Qt.AlignCenter)
+        
+        # Boyut Slider Alanı
         lbl_size = QLabel("BOYUT"); lbl_size.setAlignment(Qt.AlignCenter); lbl_size.setStyleSheet("font-size: 9px; font-weight: 900; margin-top: 5px;"); layout.addWidget(lbl_size)
         slider = QSlider(Qt.Horizontal); slider.setRange(2, 100); slider.setValue(4); slider.setFixedWidth(52)
         slider.valueChanged.connect(self.update_brush_size); layout.addWidget(slider, 0, Qt.AlignCenter)
         self.lbl_percent = QLabel("4%"); self.lbl_percent.setAlignment(Qt.AlignCenter); self.lbl_percent.setStyleSheet("font-size: 11px; color: #007aff; font-weight: 900;"); layout.addWidget(self.lbl_percent)
-        layout.addStretch(); layout.addWidget(self.create_btn("✕", QApplication.quit), 0, Qt.AlignCenter)
+        
+        layout.addStretch() # Üst kısmı yukarı itmek için boşluk
+
+        # Alt Bölüm: Ayarlar, Hakkında ve Kapat
+        layout.addWidget(self.create_btn("⚙️", lambda: print("Ayarlar tıklandı")), 0, Qt.AlignCenter)
+        layout.addWidget(self.create_btn("ℹ️", self.show_about), 0, Qt.AlignCenter)
+        
+        btn_close = self.create_btn("✕", QApplication.quit)
+        btn_close.setStyleSheet("background-color: #ff3b30; color: white;")
+        layout.addWidget(btn_close, 0, Qt.AlignCenter)
+        
         self.safe_change("pen", self.btn_draw)
+
+    def show_about(self):
+        dialog = AboutDialog(self)
+        dialog.exec_()
 
     def select_color(self):
         picker = ModernColorPicker(self.overlay.current_color, self.custom_colors, self.overlay)
