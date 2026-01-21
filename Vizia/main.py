@@ -3,7 +3,8 @@ import os
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
-from core import DrawingOverlay, ModernToolbar
+from core.overlay import DrawingOverlay
+from core.toolbar import ModernToolbar
 
 if __name__ == "__main__":
     # Yüksek DPI ekranlar için ölçeklendirme
