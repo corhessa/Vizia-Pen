@@ -1,20 +1,145 @@
 import os
 import datetime
-from PyQt5.QtWidgets import QMainWindow, QApplication, QDialog, QVBoxLayout, QPushButton, QLabel
-from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QFont, QCursor, QPen
-from PyQt5.QtCore import Qt, QPoint, QTimer, QStandardPaths
+from PyQt5.QtWidgets import (QMainWindow, QApplication, QDialog, QVBoxLayout, 
+                             QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect)
+from PyQt5.QtGui import (QPainter, QPixmap, QPainterPath, QColor, QPen)
+from PyQt5.QtCore import (Qt, QPoint, QTimer, QStandardPaths)
 
-from ui.ui_components import ModernNotification, ModernColorPicker
+from ui.ui_components import ModernNotification
 from ui.text_widgets import ViziaTextItem 
 
-# AboutDialog sınıfı aynen kalabilir, buraya sığdırmak için kısaltıyorum...
 class AboutDialog(QDialog):
-    # (Eski kodun aynısı)
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Vizia - Hakkında")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(400, 520)
+        self.old_pos = None
+
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Vizia v1.0"))
+        layout.setContentsMargins(10, 10, 10, 10) 
+
+        # --- BEYAZ KART (Ana Taşıyıcı) ---
+        self.container = QFrame()
+        self.container.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border-radius: 20px;
+                border: 1px solid #f0f0f0;
+            }
+            QLabel {
+                color: #000000;
+                font-family: 'Segoe UI', sans-serif;
+                border: none;
+            }
+        """)
+        
+        # Kartın Gölgesi
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(25)
+        shadow.setXOffset(0)
+        shadow.setYOffset(8)
+        shadow.setColor(QColor(0, 0, 0, 40))
+        self.container.setGraphicsEffect(shadow)
+        
+        layout.addWidget(self.container)
+
+        # İçerik Düzeni
+        content_layout = QVBoxLayout(self.container)
+        content_layout.setContentsMargins(30, 45, 30, 45)
+        content_layout.setSpacing(15)
+
+        # 1. LOGO ALANI
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignCenter)
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logo_path = os.path.join(base_path, "Assets", "VIZIA.png") 
+        if not os.path.exists(logo_path):
+            logo_path = os.path.join(base_path, "Assets", "VIZIA.ico")
+        
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path)
+            # Logoyu biraz büyüttük ve netleştirdik
+            scaled_pixmap = pixmap.scaled(115, 115, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+        else:
+            logo_label.setText("V")
+            logo_label.setStyleSheet("font-size: 80px; font-weight: bold; color: #000;")
+        content_layout.addWidget(logo_label, 0, Qt.AlignHCenter)
+
+        # 2. BAŞLIK
+        title = QLabel("VIZIA PEN")
+        title.setStyleSheet("font-size: 28px; font-weight: 900; letter-spacing: 0.5px; color: #111;")
+        title.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(title)
+        
+        content_layout.addStretch()
+
+        # 3. AÇIKLAMA METNİ
+        aciklama_metni = """
+        <p style='line-height: 160%; font-size: 14px; color: #444;'>
+        Vizia Pen, ekran üzerinde <b>özgürce</b> çizim yapmanızı ve <b>fikirlerinizi</b> 
+        anında görselleştirmenizi sağlayan <b>profesyonel</b> bir araçtır.
+        </p>
+        <br>
+        <p style='color: #999; font-size: 12px;'>
+        Geliştirici: <b>Corhessa</b> &nbsp;|&nbsp; v1.0
+        </p>
+        """
+        info_label = QLabel(aciklama_metni)
+        info_label.setWordWrap(True)
+        info_label.setAlignment(Qt.AlignCenter)
+        info_label.setTextFormat(Qt.RichText)
+        content_layout.addWidget(info_label)
+
+        content_layout.addSpacing(25)
+
+        # 4. YENİLENMİŞ PREMİUM 'KAPAT' BUTONU
+        btn_ok = QPushButton("Kapat")
+        btn_ok.setCursor(Qt.PointingHandCursor)
+        btn_ok.clicked.connect(self.accept)
+        btn_ok.setFixedSize(160, 44) 
+        
+        # Tasarım: Hafif Gradient + Modern Font + Tam Yuvarlak Köşeler
+        btn_ok.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #007aff, stop:1 #005bb5);
+                color: #ffffff;
+                border: none;
+                border-radius: 22px;
+                font-family: 'Segoe UI';
+                font-weight: 700;
+                font-size: 14px;
+                letter-spacing: 0.5px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0088ff, stop:1 #0066cc);
+            }
+            QPushButton:pressed {
+                background-color: #004494;
+                padding-top: 2px; /* Basma hissi */
+            }
+        """)
+        
+        
+        btn_shadow = QGraphicsDropShadowEffect()
+        btn_shadow.setBlurRadius(15)
+        btn_shadow.setColor(QColor(0, 122, 255, 80)) # Mavi gölge
+        btn_shadow.setOffset(0, 5)
+        btn_ok.setGraphicsEffect(btn_shadow)
+        
+        content_layout.addWidget(btn_ok, 0, Qt.AlignHCenter)
+
+    # Pencere Sürükleme
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton: self.old_pos = event.globalPos()
+    def mouseMoveEvent(self, event):
+        if self.old_pos:
+            delta = event.globalPos() - self.old_pos
+            self.move(self.x() + delta.x(), self.y() + delta.y())
+            self.old_pos = event.globalPos()
+    def mouseReleaseEvent(self, event): self.old_pos = None
+
 
 class DrawingOverlay(QMainWindow):
     def __init__(self):
@@ -56,10 +181,8 @@ class DrawingOverlay(QMainWindow):
         painter = QPainter(self.canvas)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Hangi geçmişi kullanacağız?
         active_hist = self.board_history if self.whiteboard_mode else self.desktop_history
         
-        # 1. Çizimleri Yeniden Çiz
         for item in active_hist:
             if isinstance(item, dict) and item.get('type') == 'path':
                 if item['mode'] == 'eraser' and not self.whiteboard_mode:
@@ -72,19 +195,15 @@ class DrawingOverlay(QMainWindow):
                 painter.drawPath(item['path'])
         painter.end()
         
-        # 2. METİN GÖRÜNÜRLÜĞÜNÜ GÜNCELLE (DÜZELTME BURADA)
-        # Tüm geçmişteki metin objelerini kontrol et ve moda göre göster/gizle
         all_items = self.board_history + self.desktop_history
         for item in all_items:
             if isinstance(item, dict) and item.get('type') == 'text':
                 try:
-                    # Metin widget'ı hala yaşıyor mu?
                     widget = item['obj']
-                    # Metnin oluşturulduğu mod, şu anki mod ile aynı mı?
                     should_be_visible = (widget.creation_mode == self.whiteboard_mode)
                     widget.setVisible(should_be_visible)
                 except RuntimeError:
-                    pass # Silinmişse yoksay
+                    pass 
                     
         self.update()
 
@@ -100,7 +219,7 @@ class DrawingOverlay(QMainWindow):
         for item in target[:]:
             if isinstance(item, dict) and item.get('type') == 'text': item['obj'].close()
         target.clear(); self.canvas.fill(Qt.transparent); self.update()
-        self.redraw_canvas() # Görünürlük güncellemesi için çağır
+        self.redraw_canvas() 
 
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
@@ -149,8 +268,6 @@ class DrawingOverlay(QMainWindow):
         if self.whiteboard_mode: painter.fillRect(self.rect(), Qt.white)
         else: painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
         painter.drawPixmap(0, 0, self.canvas)
-        # paintEvent içinde setVisible çağırmıyoruz artık, redraw_canvas hallediyor.
-        # Bu da performans ve titreme sorunlarını çözer.
 
     def mousePressEvent(self, event):
         if self.drawing_mode != "move": self.force_focus()

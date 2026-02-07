@@ -1,5 +1,6 @@
 import os
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QSlider, QLabel, QFrame, QApplication
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QSlider, 
+                             QLabel, QFrame, QApplication, QToolTip, QGraphicsDropShadowEffect)
 from PyQt5.QtGui import QPixmap, QColor
 from PyQt5.QtCore import Qt, QTimer
 from ui.ui_components import ModernColorPicker
@@ -12,25 +13,81 @@ class ModernToolbar(QWidget):
         self.custom_colors = ["#2c2c2e"] * 10 
         self.custom_color_index = 0
         self.last_active_tool = "pen"
+        
+        # Tooltip stilini bir değişken olarak tutuyoruz ki 
+        # renk değiştiren butonlara tekrar tekrar hatırlatabilelim.
+        self.tooltip_style = """
+            QToolTip {
+                background-color: #ffffff;
+                color: #000000;
+                border: 1px solid #d1d1d6;
+                border-radius: 4px;
+                padding: 5px;
+                font-family: 'Segoe UI';
+                font-size: 12px;
+                font-weight: bold;
+            }
+        """
         self.initUI()
 
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setFixedWidth(75)
-        # DÜZELTME 1: Pencere boyunu ciddi oranda kısalttık (700 -> 630)
-        # Bu sayede alttaki boşluk gitti ve butonlar yukarı kaydı
         self.setFixedHeight(630) 
         
-        self.setStyleSheet("""
-            QWidget { background-color: #1c1c1e; border-radius: 20px; border: 1.5px solid #3a3a3c; }
-            QPushButton { background-color: #2c2c2e; color: white; border: none; border-radius: 10px; font-size: 18px; min-width: 40px; min-height: 40px; }
-            QPushButton:hover { background-color: #3a3a40; border: 1px solid #007aff; }
-            QLabel { color: white; background: transparent; border: none; }
+        # --- ANA CSS ---
+        # #btn_shot (Kamera) için özel rengi buraya taşıdık.
+        # Böylece tooltip ayarını ezmiyor.
+        self.setStyleSheet(f"""
+            QWidget {{ 
+                background-color: #1c1c1e; 
+                border-radius: 20px; 
+                border: 1.5px solid #3a3a3c; 
+            }}
+            
+            QPushButton {{ 
+                background-color: #2c2c2e; 
+                color: white; 
+                border: none; 
+                border-radius: 10px; 
+                font-size: 18px; 
+                min-width: 40px; 
+                min-height: 40px; 
+            }}
+            
+            QPushButton:hover {{ 
+                background-color: #3a3a40; 
+                border: 1px solid #007aff; 
+            }}
+
+            QPushButton[active="true"] {{
+                background-color: #007aff;
+                border: 1px solid white;
+            }}
+            
+            QPushButton[state="red"] {{ background-color: #ff3b30; }}
+            QPushButton[state="green"] {{ background-color: #4cd964; }}
+            
+            /* KAMERA BUTONU ÖZEL RENGİ */
+            QPushButton#btn_shot {{
+                background-color: #5856d6;
+            }}
+            QPushButton#btn_shot:hover {{
+                border: 1px solid white;
+            }}
+            
+            QLabel {{ 
+                color: white; 
+                background: transparent; 
+                border: none; 
+            }}
+            
+            {self.tooltip_style}
         """)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10) 
-        layout.setSpacing(5) # Butonlar arası sıkı boşluk korundu
+        layout.setSpacing(5)
 
         # Logo
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,22 +104,22 @@ class ModernToolbar(QWidget):
         layout.addSpacing(3)
 
         # Çizim Araçları
-        self.btn_draw = self.create_btn("🖋", lambda: self.safe_change("pen", self.btn_draw))
+        self.btn_draw = self.create_btn("🖋", lambda: self.safe_change("pen", self.btn_draw), "Kalem")
         layout.addWidget(self.btn_draw, 0, Qt.AlignCenter)
         
-        self.btn_eraser = self.create_btn("🧼", lambda: self.safe_change("eraser", self.btn_eraser))
+        self.btn_eraser = self.create_btn("🧼", lambda: self.safe_change("eraser", self.btn_eraser), "Silgi")
         layout.addWidget(self.btn_eraser, 0, Qt.AlignCenter)
         
-        layout.addWidget(self.create_btn("T", self.overlay.add_text), 0, Qt.AlignCenter)
+        layout.addWidget(self.create_btn("T", self.overlay.add_text, "Metin Ekle"), 0, Qt.AlignCenter)
         
-        self.btn_board = self.create_btn("📋", self.toggle_board)
-        self.btn_board.setStyleSheet("background-color: #ff3b30;")
+        self.btn_board = self.create_btn("📋", self.toggle_board, "Beyaz Tahta / Masaüstü")
+        self.btn_board.setProperty("state", "red") 
         layout.addWidget(self.btn_board, 0, Qt.AlignCenter)
         
-        self.btn_move = self.create_btn("🖱", lambda: self.safe_change("move", self.btn_move))
+        self.btn_move = self.create_btn("🖱", lambda: self.safe_change("move", self.btn_move), "Taşıma Modu")
         layout.addWidget(self.btn_move, 0, Qt.AlignCenter)
         
-        # Ayırıcı Çizgi
+        # Ayırıcı
         layout.addSpacing(2)
         line = QFrame()
         line.setFixedHeight(1)
@@ -71,29 +128,28 @@ class ModernToolbar(QWidget):
         layout.addWidget(line, 0, Qt.AlignCenter)
         layout.addSpacing(2)
         
-        layout.addWidget(self.create_btn("↺", self.overlay.undo), 0, Qt.AlignCenter)
+        layout.addWidget(self.create_btn("↺", self.overlay.undo, "Geri Al"), 0, Qt.AlignCenter)
         
-        btn_clear = self.create_btn("🗑️", self.overlay.clear_all)
+        btn_clear = self.create_btn("🗑️", self.overlay.clear_all, "Hepsini Temizle")
         layout.addWidget(btn_clear, 0, Qt.AlignCenter)
         
-        self.btn_shot = self.create_btn("📸", self.overlay.take_screenshot)
-        self.btn_shot.setStyleSheet("background-color: #5856d6;")
+        # Ekran Görüntüsü Butonu (ID ataması yaptık, CSS yukarıdan alacak)
+        self.btn_shot = self.create_btn("📸", self.overlay.take_screenshot, "Ekran Görüntüsü Al")
+        self.btn_shot.setObjectName("btn_shot") 
         layout.addWidget(self.btn_shot, 0, Qt.AlignCenter)
         
-        self.btn_color = self.create_btn("⬤", self.select_color)
-        self.btn_color.setStyleSheet(f"color: {self.overlay.current_color.name()}; font-size: 20px;")
+        self.btn_color = self.create_btn("⬤", self.select_color, "Renk Seç")
+        # Renk butonunun stilini ilk açılışta ayarla
+        self.update_color_btn_style()
         layout.addWidget(self.btn_color, 0, Qt.AlignCenter)
         
-        # --- DÜZELTME 2: DAHA KOMPAKT & YUKARIDA ---
+        # Boyut Slider
         size_box = QFrame()
-        # Yüksekliği azalttık (85 -> 70), böylece yer kaplamıyor
         size_box.setFixedHeight(70) 
         size_box.setStyleSheet("background: transparent; border: none;")
         
         size_layout = QVBoxLayout(size_box)
-        # Üst boşluğu (margin) sıfırladık, böylece renk butonuna yaklaştı
         size_layout.setContentsMargins(0, 0, 0, 0) 
-        # Elemanlar arası boşluğu 2px'e indirdik (birbirlerine çok yakınlar)
         size_layout.setSpacing(2) 
 
         lbl_size = QLabel("BOYUT")
@@ -130,19 +186,20 @@ class ModernToolbar(QWidget):
         size_layout.addWidget(self.lbl_percent)
         
         layout.addWidget(size_box, 0, Qt.AlignCenter)
-        # ------------------------------------------
         
         layout.addStretch()
 
         # Alt Menü
-        layout.addWidget(self.create_btn("⚙️", lambda: None), 0, Qt.AlignCenter)
-        layout.addWidget(self.create_btn("ℹ️", self.show_about), 0, Qt.AlignCenter)
+        layout.addWidget(self.create_btn("⚙️", lambda: None, "Ayarlar"), 0, Qt.AlignCenter)
+        layout.addWidget(self.create_btn("ℹ️", self.show_about, "Hakkında"), 0, Qt.AlignCenter)
         
-        btn_close = self.create_btn("✕", QApplication.quit)
-        btn_close.setStyleSheet("background-color: #ff3b30; color: white;")
+        btn_close = self.create_btn("✕", QApplication.quit, "Çıkış")
+        btn_close.setProperty("state", "red")
         layout.addWidget(btn_close, 0, Qt.AlignCenter)
         
-        self.safe_change("pen", self.btn_draw)
+        # Başlangıçta Kalem Aktif
+        self.btn_draw.setProperty("active", True)
+        self.style().polish(self.btn_draw) 
 
     def show_about(self):
         from core.overlay import AboutDialog
@@ -153,22 +210,37 @@ class ModernToolbar(QWidget):
         if picker.exec_():
             color = picker.selected_color
             self.overlay.current_color = color
-            self.btn_color.setStyleSheet(f"color: {color.name()}; font-size: 20px;")
+            self.update_color_btn_style()
         QTimer.singleShot(10, self.overlay.force_focus)
+
+    def update_color_btn_style(self):
+        # Renk butonunun stilini güncellerken Tooltip CSS'ini sonuna ekliyoruz.
+        # Bu kritik hamle, renk değişse bile tooltip'in beyaz kalmasını sağlıyor.
+        color_hex = self.overlay.current_color.name()
+        self.btn_color.setStyleSheet(f"""
+            QPushButton {{ color: {color_hex}; font-size: 20px; }}
+            {self.tooltip_style}
+        """)
 
     def update_brush_size(self, val):
         self.overlay.brush_size = val
         self.lbl_percent.setText(f"{val}%")
 
-    def create_btn(self, text, slot):
+    def create_btn(self, text, slot, tooltip_text=""):
         btn = QPushButton(text)
         btn.clicked.connect(slot)
         btn.setFocusPolicy(Qt.NoFocus)
+        if tooltip_text:
+            btn.setToolTip(tooltip_text)
         return btn
     
     def toggle_board(self):
         self.overlay.whiteboard_mode = not self.overlay.whiteboard_mode
-        self.btn_board.setStyleSheet("background-color: #4cd964;" if self.overlay.whiteboard_mode else "background-color: #ff3b30;")
+        state = "green" if self.overlay.whiteboard_mode else "red"
+        self.btn_board.setProperty("state", state)
+        self.btn_board.style().unpolish(self.btn_board)
+        self.btn_board.style().polish(self.btn_board)
+        
         self.overlay.redraw_canvas()
         self.overlay.update()
         QTimer.singleShot(10, self.overlay.force_focus)
@@ -184,8 +256,13 @@ class ModernToolbar(QWidget):
     def safe_change(self, mode, button):
         self.overlay.drawing_mode = mode
         for b in [self.btn_draw, self.btn_move, self.btn_eraser]:
-            b.setStyleSheet("background-color: #2c2c2e;")
-        button.setStyleSheet("background-color: #007aff; border: 1px solid white;")
+            b.setProperty("active", False)
+            b.style().unpolish(b) 
+            b.style().polish(b)   
+        
+        button.setProperty("active", True)
+        button.style().unpolish(button)
+        button.style().polish(button)
         
         self.overlay.setWindowFlag(Qt.WindowTransparentForInput, mode == "move")
         self.overlay.show()
