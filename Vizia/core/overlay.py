@@ -12,8 +12,8 @@ def resource_path(relative_path):
 import datetime
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QDialog, QVBoxLayout, 
                              QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect)
-from PyQt5.QtGui import (QPainter, QPixmap, QPainterPath, QColor, QPen)
-from PyQt5.QtCore import (Qt, QPoint, QTimer, QStandardPaths)
+from PyQt5.QtGui import (QPainter, QPixmap, QPainterPath, QColor, QPen, QRegion)
+from PyQt5.QtCore import (Qt, QPoint, QTimer, QStandardPaths, QRect)
 
 from ui.ui_components import ModernNotification
 from ui.text_widgets import ViziaTextItem 
@@ -159,6 +159,8 @@ class DrawingOverlay(QMainWindow):
         self.showFullScreen()
         self.canvas = QPixmap(QApplication.primaryScreen().size())
         self.canvas.fill(Qt.transparent)
+        
+        # Çizim değişkenleri
         self.drawing_mode = "pen"
         self.whiteboard_mode = False
         self.desktop_history, self.board_history = [], []
@@ -169,9 +171,20 @@ class DrawingOverlay(QMainWindow):
         self.drawing = False
         self.toolbar = None
         self.toast = None
+        
+        # Ekran Görüntüsü / Alan Seçimi değişkenleri
+        self.is_selecting_region = False
+        self.select_start = QPoint()
+        self.select_end = QPoint()
+        
         self.setFocusPolicy(Qt.StrongFocus)
 
     def keyPressEvent(self, event):
+        # Alan seçimi sırasında ESC iptal eder
+        if self.is_selecting_region and event.key() == Qt.Key_Escape:
+            self.cancel_screenshot()
+            return
+
         if event.key() == Qt.Key_Backspace: self.undo()
         elif event.key() == Qt.Key_Q: QApplication.quit()
         elif event.key() == Qt.Key_S: self.take_screenshot()
@@ -231,17 +244,64 @@ class DrawingOverlay(QMainWindow):
         target.clear(); self.canvas.fill(Qt.transparent); self.update()
         self.redraw_canvas() 
 
+    # --- GELİŞMİŞ EKRAN GÖRÜNTÜSÜ VE ALAN SEÇİMİ ---
     def take_screenshot(self):
+        """ Ekran görüntüsü modunu başlatır """
         if self.toolbar: self.toolbar.hide()
-        QTimer.singleShot(400, self._perform_capture)
+        
+        # Seçim modunu aktif et
+        self.is_selecting_region = True
+        self.select_start = QPoint()
+        self.select_end = QPoint()
+        
+        # İmleci değiştir (Crosshair)
+        self.setCursor(Qt.CrossCursor)
+        
+        # Kullanıcıyı bilgilendir
+        self.show_toast("Alanı seçmek için sürükleyin (Tam ekran için tıklayın)")
+        self.update()
 
-    def _perform_capture(self):
+    def cancel_screenshot(self):
+        """ Seçim modunu iptal eder """
+        self.is_selecting_region = False
+        self.setCursor(Qt.ArrowCursor)
+        if self.toolbar: self.toolbar.show()
+        self.update()
+
+    def _finalize_screenshot(self, crop_rect=None):
+        """ Görüntüyü yakalar ve kaydeder """
+        # Önce UI temizliği (Seçim kutusu ve karartma kalkmalı)
+        self.is_selecting_region = False
+        self.setCursor(Qt.ArrowCursor)
+        self.update() 
+        QApplication.processEvents() # Ekrana yansımasını bekle
+        
+        # Görsel temizlendiğinden emin olmak için çok kısa bir gecikme
+        QTimer.singleShot(50, lambda: self._save_to_disk(crop_rect))
+
+    def _save_to_disk(self, crop_rect):
         screen = QApplication.primaryScreen()
-        screenshot = screen.grabWindow(0)
+        screenshot = screen.grabWindow(0) # Tüm masaüstünü al
+        
+        # Eğer alan seçildiyse kırp
+        if crop_rect:
+            # High DPI ekranlar için piksel oranını hesapla
+            dpr = screen.devicePixelRatio()
+            x = int(crop_rect.x() * dpr)
+            y = int(crop_rect.y() * dpr)
+            w = int(crop_rect.width() * dpr)
+            h = int(crop_rect.height() * dpr)
+            screenshot = screenshot.copy(x, y, w, h)
+            
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         pics = QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
         path = os.path.join(pics, f"Vizia_{timestamp}.png")
-        if screenshot.save(path): self.show_toast("Başarıyla Kaydedildi !")
+        
+        if screenshot.save(path): 
+            self.show_toast("Başarıyla Kaydedildi !")
+        else:
+            self.show_toast("Hata: Kaydedilemedi!")
+            
         if self.toolbar: self.toolbar.show()
         self.force_focus()
 
@@ -275,11 +335,56 @@ class DrawingOverlay(QMainWindow):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        if self.whiteboard_mode: painter.fillRect(self.rect(), Qt.white)
-        else: painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
+        
+        # 1. Zemin
+        if self.whiteboard_mode: 
+            painter.fillRect(self.rect(), Qt.white)
+        else: 
+            # Masaüstü modunda zemin şeffaf, paintEvent otomatik temizler
+            pass
+
+        # 2. Mevcut Çizimler
         painter.drawPixmap(0, 0, self.canvas)
+        
+        # 3. Alan Seçimi Görselleri
+        if self.is_selecting_region:
+            # Seçili olmayan alanı karart (Dim Effect)
+            painter.setBrush(QColor(0, 0, 0, 80)) # Siyah, %30 opaklık
+            painter.setPen(Qt.NoPen)
+            
+            full_rect = self.rect()
+            selection_rect = QRect(self.select_start, self.select_end).normalized()
+            
+            # Karartmayı seçili alanın DIŞINA uygula
+            # QRegion kullanarak "Tam Ekran - Seçili Alan" işlemi yapıyoruz
+            clip_region = QRegion(full_rect).subtracted(QRegion(selection_rect))
+            
+            painter.setClipRegion(clip_region)
+            painter.fillRect(full_rect, QColor(0, 0, 0, 80))
+            painter.setClipRegion(QRegion(full_rect)) # Clipping'i sıfırla
+            
+            # Seçili alanın etrafına kesikli çizgi çek
+            pen = QPen(Qt.white, 2, Qt.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(selection_rect)
+            
+            # Boyut bilgisi göster
+            if selection_rect.width() > 0:
+                txt = f"{selection_rect.width()} x {selection_rect.height()}"
+                painter.setPen(Qt.white)
+                # Yazıyı kutunun hemen üzerine koy
+                painter.drawText(selection_rect.topLeft() + QPoint(5, -5), txt)
 
     def mousePressEvent(self, event):
+        # Eğer seçim modundaysak, çizim yapma, seçim başlat
+        if self.is_selecting_region:
+            if event.button() == Qt.LeftButton:
+                self.select_start = event.pos()
+                self.select_end = event.pos()
+                self.update()
+            return 
+            
         if self.drawing_mode != "move": self.force_focus()
         if self.drawing_mode in ["pen", "eraser"] and event.button() == Qt.LeftButton:
             self.drawing = True
@@ -288,6 +393,12 @@ class DrawingOverlay(QMainWindow):
             self.current_stroke_path.moveTo(self.last_point)
 
     def mouseMoveEvent(self, event):
+        # Seçim modunda sürükleme
+        if self.is_selecting_region:
+            self.select_end = event.pos()
+            self.update()
+            return
+            
         if not self.drawing: return
         current_pos = event.pos()
         mid_point = (self.last_point + current_pos) / 2
@@ -310,6 +421,19 @@ class DrawingOverlay(QMainWindow):
         self.last_point = current_pos; self.update()
 
     def mouseReleaseEvent(self, event):
+        # Seçim bittiğinde yakala
+        if self.is_selecting_region:
+            if event.button() == Qt.LeftButton:
+                self.select_end = event.pos()
+                selection_rect = QRect(self.select_start, self.select_end).normalized()
+                
+                # Çok küçükse (tıklama gibi) -> Tam Ekran
+                if selection_rect.width() < 10 or selection_rect.height() < 10:
+                    self._finalize_screenshot(None) 
+                else:
+                    self._finalize_screenshot(selection_rect)
+            return
+            
         if self.drawing:
             item = {'type': 'path', 'path': QPainterPath(self.current_stroke_path), 
                     'color': QColor(self.current_color), 'width': self.brush_size, 'mode': self.drawing_mode}
