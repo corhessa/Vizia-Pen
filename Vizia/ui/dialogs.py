@@ -85,12 +85,16 @@ class AboutDialog(QDialog):
         content_layout.addStretch()
 
         # 3. AÇIKLAMA METNİ
+        # Buraya "Icons by Flaticon" yazısını ekledim (hafif silik #aaa ve küçük 10px)
         aciklama_metni = """
         <p style='line-height: 160%; font-size: 14px; color: #444;'>
         Vizia Pen, ekran üzerinde <b>özgürce</b> çizim yapmanızı ve <b>fikirlerinizi</b> 
         anında görselleştirmenizi sağlayan <b>profesyonel</b> bir araçtır.
         </p>
         <br>
+        <p style='color: #aaa; font-size: 10px; margin-bottom: 5px;'>
+        Icons by Flaticon
+        </p>
         <p style='color: #999; font-size: 12px;'>
         Geliştirici: <b>Corhessa</b> &nbsp;|&nbsp; v1.0
         </p>
