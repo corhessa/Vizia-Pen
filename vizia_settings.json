@@ -1,0 +1,26 @@
+{
+    "save_path": "C:\\Users\\mls4g\\Pictures\\Vizia Screenshots",
+    "hotkeys": {
+        "board_mode": "Space",
+        "drawer": "E",
+        "undo": "Backspace",
+        "clear": "D",
+        "screenshot": "S",
+        "move_mode": "V",
+        "color_picker": "C",
+        "quit": "Q"
+    },
+    "custom_colors": [
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e",
+        "#2c2c2e"
+    ],
+    "keep_colors": true
+}
