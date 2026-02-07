@@ -6,7 +6,8 @@ from PyQt5.QtCore import Qt, QPoint, QTimer, QStandardPaths
 
 # Kendi modüllerin
 from ui_components import ModernNotification, ModernColorPicker
-from text_widgets import StandaloneText
+# DÜZELTME 1: Eski 'StandaloneText' yerine yeni 'ViziaTextItem' import edildi
+from text_widgets import ViziaTextItem 
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -128,8 +129,11 @@ class DrawingOverlay(QMainWindow):
         self.toast.show_animated()
 
     def add_text(self):
-        txt = StandaloneText(self, self.whiteboard_mode, self.current_color)
-        pos = QCursor.pos(); txt.move(pos.x() - 150, pos.y() - 50)
+        # DÜZELTME 2: 'StandaloneText' kullanımı 'ViziaTextItem' ile değiştirildi
+        txt = ViziaTextItem(self, self.whiteboard_mode, self.current_color)
+        pos = QCursor.pos()
+        # Metin kutusunu imlecin olduğu yere (biraz ortalayarak) taşı
+        txt.move(pos.x() - 25, pos.y() - 20)
         target = self.board_history if self.whiteboard_mode else self.desktop_history
         target.append({'type': 'text', 'obj': txt})
 
