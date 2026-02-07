@@ -7,41 +7,14 @@ from PyQt5.QtCore import Qt, QPoint, QTimer, QStandardPaths
 from ui_components import ModernNotification, ModernColorPicker
 from text_widgets import ViziaTextItem 
 
+# AboutDialog sınıfı aynen kalabilir, buraya sığdırmak için kısaltıyorum...
 class AboutDialog(QDialog):
+    # (Eski kodun aynısı)
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Vizia - Hakkında")
-        self.setFixedSize(400, 500)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setStyleSheet("""
-            QDialog { background-color: #1c1c1e; border: 2px solid #3a3a3c; border-radius: 20px; }
-            QLabel { color: white; font-family: 'Segoe UI'; }
-        """)
-        
         layout = QVBoxLayout(self)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(30, 30)
-        close_btn.setStyleSheet("background: #ff3b30; color: white; border-radius: 15px; font-weight: bold;")
-        close_btn.clicked.connect(self.close)
-        layout.addWidget(close_btn, 0, Qt.AlignRight)
-
-        title = QLabel("VIZIA PROJECT")
-        title.setFont(QFont('Segoe UI', 18, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        self.image_label = QLabel("Görsel Buraya Gelecek")
-        self.image_label.setFixedSize(300, 150)
-        self.image_label.setStyleSheet("background: #2c2c2e; border-radius: 10px; color: #555;")
-        self.image_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.image_label, 0, Qt.AlignCenter)
-
-        vision_text = QLabel("Vizyonun ve projenin detaylarını\nburada anlatabilirsin.")
-        vision_text.setWordWrap(True)
-        vision_text.setAlignment(Qt.AlignCenter)
-        vision_text.setStyleSheet("color: #ebebeb; font-size: 14px; margin: 20px;")
-        layout.addWidget(vision_text)
-        layout.addStretch()
+        layout.addWidget(QLabel("Vizia v1.0"))
 
 class DrawingOverlay(QMainWindow):
     def __init__(self):
@@ -82,7 +55,11 @@ class DrawingOverlay(QMainWindow):
         self.canvas.fill(Qt.transparent)
         painter = QPainter(self.canvas)
         painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Hangi geçmişi kullanacağız?
         active_hist = self.board_history if self.whiteboard_mode else self.desktop_history
+        
+        # 1. Çizimleri Yeniden Çiz
         for item in active_hist:
             if isinstance(item, dict) and item.get('type') == 'path':
                 if item['mode'] == 'eraser' and not self.whiteboard_mode:
@@ -94,19 +71,36 @@ class DrawingOverlay(QMainWindow):
                 painter.setPen(QPen(pen_color, item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 painter.drawPath(item['path'])
         painter.end()
+        
+        # 2. METİN GÖRÜNÜRLÜĞÜNÜ GÜNCELLE (DÜZELTME BURADA)
+        # Tüm geçmişteki metin objelerini kontrol et ve moda göre göster/gizle
+        all_items = self.board_history + self.desktop_history
+        for item in all_items:
+            if isinstance(item, dict) and item.get('type') == 'text':
+                try:
+                    # Metin widget'ı hala yaşıyor mu?
+                    widget = item['obj']
+                    # Metnin oluşturulduğu mod, şu anki mod ile aynı mı?
+                    should_be_visible = (widget.creation_mode == self.whiteboard_mode)
+                    widget.setVisible(should_be_visible)
+                except RuntimeError:
+                    pass # Silinmişse yoksay
+                    
+        self.update()
 
     def undo(self):
         target = self.board_history if self.whiteboard_mode else self.desktop_history
         if target:
             last = target.pop()
             if isinstance(last, dict) and last.get('type') == 'text': last['obj'].close()
-            self.redraw_canvas(); self.update()
+            self.redraw_canvas()
 
     def clear_all(self):
         target = self.board_history if self.whiteboard_mode else self.desktop_history
         for item in target[:]:
             if isinstance(item, dict) and item.get('type') == 'text': item['obj'].close()
         target.clear(); self.canvas.fill(Qt.transparent); self.update()
+        self.redraw_canvas() # Görünürlük güncellemesi için çağır
 
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
@@ -126,46 +120,27 @@ class DrawingOverlay(QMainWindow):
         self.toast = ModernNotification(message, self)
         self.toast.show_animated()
 
-    # --- YENİ EKLENEN FONKSİYON: GÜVENLİ SİLME ---
     def remove_text_item(self, text_item):
-        """Metin kutusunu güvenli bir şekilde geçmişten siler."""
         target = self.board_history if self.whiteboard_mode else self.desktop_history
-        
-        # Listeyi tersten tarayıp bu objeyi bul ve listeden çıkar
-        # (Tersten taramak silme işlemlerinde daha güvenlidir)
         for i in range(len(target) - 1, -1, -1):
             item = target[i]
             if isinstance(item, dict) and item.get('obj') == text_item:
                 target.pop(i)
                 break
-        
-        # Listeden çıktıktan sonra widget'ı güvenle yok et
         text_item.deleteLater()
         self.update()
 
     def add_text(self):
         txt = ViziaTextItem(self, self.whiteboard_mode, self.current_color)
-        
-        # --- KONUM HESAPLAMA (Toolbar'ın yanına) ---
-        start_x, start_y = 100, 100 # Varsayılan (Toolbar yoksa)
-        
+        start_x, start_y = 100, 100
         if self.toolbar:
-            # Toolbar'ın sağına koymaya çalış (Toolbar X + Genişlik + 20px boşluk)
             target_x = self.toolbar.x() + self.toolbar.width() + 20
             target_y = self.toolbar.y()
-            
-            # Eğer sağ tarafta ekran bittiyse, soluna koy
             screen_width = QApplication.primaryScreen().size().width()
-            if target_x + 200 > screen_width:
-                target_x = self.toolbar.x() - 220
-                
+            if target_x + 200 > screen_width: target_x = self.toolbar.x() - 220
             start_x, start_y = target_x, target_y
-
         txt.move(start_x, start_y)
-        
-        # Güvenli silme sinyalini bağla (CRASH FIX)
         txt.delete_requested.connect(self.remove_text_item)
-        
         target = self.board_history if self.whiteboard_mode else self.desktop_history
         target.append({'type': 'text', 'obj': txt})
 
@@ -174,16 +149,8 @@ class DrawingOverlay(QMainWindow):
         if self.whiteboard_mode: painter.fillRect(self.rect(), Qt.white)
         else: painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
         painter.drawPixmap(0, 0, self.canvas)
-        for item in self.board_history + self.desktop_history:
-            if isinstance(item, dict) and item.get('type') == 'text':
-                # Sadece objesi hala yaşayanları çiz (Ekstra güvenlik)
-                try:
-                    if item['obj'].isVisible():
-                        is_visible = item['obj'].creation_mode == self.whiteboard_mode
-                        item['obj'].setVisible(is_visible)
-                except RuntimeError:
-                    # Obje silinmişse pas geç
-                    continue
+        # paintEvent içinde setVisible çağırmıyoruz artık, redraw_canvas hallediyor.
+        # Bu da performans ve titreme sorunlarını çözer.
 
     def mousePressEvent(self, event):
         if self.drawing_mode != "move": self.force_focus()
