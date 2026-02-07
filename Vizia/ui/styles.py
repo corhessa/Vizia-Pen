@@ -87,3 +87,4 @@ def get_color_btn_style(color_hex):
         QPushButton {{ color: {color_hex}; font-size: 20px; font-weight: bold; }}
         {TOOLTIP_STYLE}
     """
+

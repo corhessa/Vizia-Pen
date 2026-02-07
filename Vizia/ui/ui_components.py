@@ -1,9 +1,134 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QFrame, QDialog, QGridLayout, 
-                             QGraphicsOpacityEffect, QSlider, QApplication)
-from PyQt5.QtGui import QPainter, QPen, QColor, QBrush, QLinearGradient
-from PyQt5.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, pyqtSignal
+# ui/ui_components.py
 
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QDialog, 
+                             QGridLayout, QGraphicsOpacityEffect, QSlider, QApplication, QSizeGrip, QFrame)
+from PyQt5.QtGui import QPainter, QPen, QColor, QBrush, QLinearGradient, QPixmap, QIcon, QCursor
+from PyQt5.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, pyqtSignal, QSize
+
+# --- GELİŞMİŞ RESİM NESNESİ ---
+class ViziaImageItem(QWidget):
+    request_close = pyqtSignal(QWidget)
+    request_stamp = pyqtSignal(QWidget)
+    
+    # creation_mode eklendi
+    def __init__(self, image_path, creation_mode, parent=None):
+        super().__init__(parent)
+        self.creation_mode = creation_mode  # True: Whiteboard, False: Desktop
+        self.setWindowFlags(Qt.SubWindow)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setStyleSheet("background: transparent;")
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        
+        # --- KONTROL ÇUBUĞU ---
+        self.control_frame = QFrame()
+        self.control_frame.setFixedHeight(32)
+        self.control_frame.setStyleSheet("""
+            QFrame {
+                background-color: #1c1c1e;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                border: 1px solid #3a3a3c;
+            }
+        """)
+        self.control_layout = QHBoxLayout(self.control_frame)
+        self.control_layout.setContentsMargins(5, 0, 5, 0)
+        self.control_layout.setSpacing(5)
+        
+        def create_tool_btn(text, tooltip, callback, bg_color="#2c2c2e", hover_color="#3a3a40"):
+            btn = QPushButton(text)
+            btn.setFixedSize(24, 24)
+            btn.setToolTip(tooltip)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(callback)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg_color};
+                    color: white;
+                    border-radius: 4px;
+                    border: none;
+                    font-weight: bold;
+                    font-size: 12px;
+                }}
+                QPushButton:hover {{ background-color: {hover_color}; }}
+            """)
+            return btn
+
+        btn_stamp = create_tool_btn("📌", "Tuvale Sabitle (Üzerine Çizim Yap)", self.emit_stamp, "#007aff", "#005bb5")
+        btn_up = create_tool_btn("▲", "Öne Getir", self.raise_)
+        btn_down = create_tool_btn("▼", "Arkaya Gönder", self.lower)
+        btn_close = create_tool_btn("✕", "Kapat", self.emit_close, "#ff3b30", "#d70015")
+        
+        self.control_layout.addWidget(btn_stamp)
+        self.control_layout.addWidget(btn_up)
+        self.control_layout.addWidget(btn_down)
+        self.control_layout.addStretch()
+        self.control_layout.addWidget(btn_close)
+        
+        self.layout.addWidget(self.control_frame)
+        self.control_frame.hide()
+        
+        # --- RESİM ALANI ---
+        self.image_container = QLabel()
+        self.original_pixmap = QPixmap(image_path)
+        self.image_container.setPixmap(self.original_pixmap)
+        self.image_container.setScaledContents(True)
+        self.image_container.setStyleSheet("border: 1px solid rgba(255, 255, 255, 30);")
+        self.layout.addWidget(self.image_container)
+        
+        self.grip = QSizeGrip(self)
+        self.grip.setStyleSheet("background-color: transparent; width: 16px; height: 16px;")
+        
+        self.old_pos = None
+        
+        w, h = self.original_pixmap.width(), self.original_pixmap.height()
+        if w > 400:
+            ratio = 400 / w
+            w, h = 400, int(h * ratio)
+        self.resize(w, h + 32)
+        self.show()
+
+    def emit_close(self):
+        self.request_close.emit(self)
+        self.close()
+
+    def emit_stamp(self):
+        self.request_stamp.emit(self)
+
+    def resizeEvent(self, event):
+        self.grip.move(self.width() - 20, self.height() - 20)
+        super().resizeEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if not self.grip.geometry().contains(event.pos()):
+                self.old_pos = event.pos()
+                self.raise_()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.old_pos:
+            delta = event.pos() - self.old_pos
+            self.move(self.pos() + delta)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.old_pos = None
+        super().mouseReleaseEvent(event)
+        
+    def enterEvent(self, event):
+        self.control_frame.show()
+        self.image_container.setStyleSheet("border: 1px solid #007aff;")
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        self.control_frame.hide()
+        self.image_container.setStyleSheet("border: 1px solid rgba(255, 255, 255, 30);")
+        super().leaveEvent(event)
+
+# --- DİĞER BİLEŞENLER (Aynı) ---
 class ModernNotification(QWidget):
     def __init__(self, message, parent=None):
         super().__init__(parent)
@@ -11,13 +136,9 @@ class ModernNotification(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.label = QLabel(message)
         self.label.setStyleSheet("""
-            background-color: rgba(20, 20, 20, 245);
-            color: #ffffff;
-            border: 2px solid #007aff;
-            border-radius: 20px;
-            padding: 12px 35px;
-            font-size: 15px;
-            font-weight: 700;
+            background-color: rgba(20, 20, 20, 245); color: #ffffff;
+            border: 2px solid #007aff; border-radius: 20px;
+            padding: 12px 35px; font-size: 15px; font-weight: 700;
         """)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -60,36 +181,20 @@ class ModernColorPicker(QDialog):
         self.sat = initial_color.saturation()
         self.val = initial_color.value()
         self.custom_chips = []
-        self.setWindowTitle("🖋 Renk Seç")
+        self.setWindowTitle("Renk Seç")
         self.setFixedSize(520, 360)
-        self.setStyleSheet("""
-            QDialog { background-color: #1c1c1e; color: white; }
-            QLabel { color: #ebebeb; font-size: 12px; font-weight: bold; }
-            QPushButton#ActionBtn { 
-                background-color: #2c2c2e; border: 1px solid #3a3a3c; 
-                border-radius: 6px; padding: 8px; color: white; font-size: 11px;
-            }
-            QPushButton#ActionBtn:hover { background-color: #3a3a40; border: 1px solid #007aff; }
-            QPushButton#ToolBtn { 
-                background-color: #2c2c2e; border: 1.5px solid #3a3a3c; border-radius: 6px; font-size: 16px; 
-            }
-            QPushButton#ToolBtn:hover { background-color: #ff3b30; border-color: white; }
-        """)
+        self.setStyleSheet("QDialog { background-color: #1c1c1e; color: white; }")
         self.initUI()
 
     def initUI(self):
         main_layout = QHBoxLayout(self)
         left_panel = QVBoxLayout()
-        left_panel.addWidget(QLabel("Temel Renkler"))
         basic_grid = QGridLayout()
         colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff", "#ffffff", "#000000", "#808080", "#ffa500"]
         for i, c in enumerate(colors):
             btn = self.create_color_chip(c)
             basic_grid.addWidget(btn, i // 5, i % 5)
         left_panel.addLayout(basic_grid)
-        line = QFrame(); line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("background-color: #3a3a3c; margin: 10px 0;"); left_panel.addWidget(line)
-        left_panel.addWidget(QLabel("Özel Renkler"))
         self.custom_grid = QGridLayout()
         for i in range(10):
             color_hex = self.persistent_colors[i]
@@ -99,42 +204,27 @@ class ModernColorPicker(QDialog):
         left_panel.addLayout(self.custom_grid)
         left_panel.addStretch()
         bottom_left_btns = QHBoxLayout()
-        self.add_btn = QPushButton("Palete Ekle"); self.add_btn.setObjectName("ActionBtn")
-        self.add_btn.clicked.connect(self.add_to_custom)
-        self.trash_btn = QPushButton("🗑️")
-        self.trash_btn.setFixedSize(35, 35); self.trash_btn.setObjectName("ToolBtn")
-        self.trash_btn.clicked.connect(self.reset_custom)
-        bottom_left_btns.addWidget(self.add_btn); bottom_left_btns.addWidget(self.trash_btn)
+        self.add_btn = QPushButton("Ekle"); self.add_btn.clicked.connect(self.add_to_custom)
+        bottom_left_btns.addWidget(self.add_btn)
         left_panel.addLayout(bottom_left_btns); main_layout.addLayout(left_panel)
         right_panel = QVBoxLayout()
         self.sv_map = SVMapWidget(self.hue, self.sat, self.val)
         self.sv_map.colorChanged.connect(self.update_sv); right_panel.addWidget(self.sv_map)
         self.hue_slider = QSlider(Qt.Horizontal); self.hue_slider.setRange(0, 359); self.hue_slider.setValue(self.hue)
-        self.hue_slider.setStyleSheet("""
-            QSlider::groove:horizontal { height: 12px; border-radius: 6px; background: qlineargradient(x1:0, x2:1, stop:0 red, stop:0.17 yellow, stop:0.33 green, stop:0.5 cyan, stop:0.67 blue, stop:0.83 magenta, stop:1 red); }
-            QSlider::handle:horizontal { background: white; border: 2px solid black; width: 14px; margin: -2px 0; border-radius: 7px; }
-        """)
         self.hue_slider.valueChanged.connect(self.update_hue); right_panel.addWidget(self.hue_slider)
         self.preview_bar = QFrame(); self.preview_bar.setFixedHeight(35); self.update_preview()
         right_panel.addWidget(self.preview_bar)
-        btn_box = QHBoxLayout(); btn_box.addStretch()
-        ok_btn = QPushButton("Tamam"); ok_btn.setObjectName("ActionBtn"); ok_btn.clicked.connect(self.accept)
-        btn_box.addWidget(ok_btn); right_panel.addLayout(btn_box)
-        main_layout.addLayout(right_panel)
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_C: self.accept()
-        else: super().keyPressEvent(event)
+        ok_btn = QPushButton("Tamam"); ok_btn.clicked.connect(self.accept)
+        right_panel.addWidget(ok_btn); main_layout.addLayout(right_panel)
 
     def create_color_chip(self, color_hex, empty=False):
-        btn = QPushButton(); btn.setFixedSize(28, 28); btn.setCursor(Qt.PointingHandCursor)
+        btn = QPushButton(); btn.setFixedSize(28, 28)
         border = "#3a3a3c" if empty else "#007aff"
         btn.setStyleSheet(f"background-color: {color_hex}; border-radius: 4px; border: 1.5px solid {border};")
         if not empty: btn.clicked.connect(lambda: self.set_direct_color(QColor(color_hex)))
         return btn
 
     def get_toolbar(self):
-        # Circular import önlemek için parent kontrolü
         return self.parent_context.owner.toolbar if hasattr(self.parent_context, 'owner') else (self.parent_context.toolbar if hasattr(self.parent_context, 'toolbar') else self.parent_context)
 
     def add_to_custom(self):
@@ -149,16 +239,6 @@ class ModernColorPicker(QDialog):
             except: pass
             chip.clicked.connect(lambda _, c=color_hex: self.set_direct_color(QColor(c)))
             toolbar.custom_color_index = (idx + 1) % 10
-
-    def reset_custom(self):
-        toolbar = self.get_toolbar()
-        for i in range(10):
-            self.persistent_colors[i] = "#2c2c2e"
-            chip = self.custom_chips[i]
-            chip.setStyleSheet("background-color: #2c2c2e; border-radius: 4px; border: 1.5px solid #3a3a3c;")
-            try: chip.clicked.disconnect()
-            except: pass
-        if toolbar: toolbar.custom_color_index = 0
 
     def set_direct_color(self, color):
         self.selected_color = color; self.hue = color.hue() if color.hue() != -1 else 0
