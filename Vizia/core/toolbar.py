@@ -1,4 +1,14 @@
+import sys
 import os
+
+def resource_path(relative_path):
+    """ Dosya yollarını EXE uyumlu hale getirir """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QSlider, 
                              QLabel, QFrame, QApplication, QToolTip, QGraphicsDropShadowEffect)
 from PyQt5.QtGui import QPixmap, QColor
@@ -91,7 +101,7 @@ class ModernToolbar(QWidget):
 
         # Logo
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logo_path = os.path.join(base_path, "Assets", "VIZIA.ico")
+        logo_path = resource_path("Vizia/Assets/VIZIA.ico")
         logo_label = QLabel()
         logo_pixmap = QPixmap(logo_path)
         if not logo_pixmap.isNull():

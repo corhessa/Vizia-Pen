@@ -1,4 +1,14 @@
+import sys
 import os
+
+def resource_path(relative_path):
+    """ Dosya yollarını EXE uyumlu hale getirir """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 import datetime
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QDialog, QVBoxLayout, 
                              QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect)
@@ -53,7 +63,7 @@ class AboutDialog(QDialog):
         logo_label = QLabel()
         logo_label.setAlignment(Qt.AlignCenter)
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logo_path = os.path.join(base_path, "Assets", "VIZIA.png") 
+        logo_path = resource_path("Vizia/Assets/VIZIA.png") 
         if not os.path.exists(logo_path):
             logo_path = os.path.join(base_path, "Assets", "VIZIA.ico")
         

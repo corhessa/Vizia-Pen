@@ -6,6 +6,14 @@ from PyQt5.QtGui import QIcon
 from core.overlay import DrawingOverlay
 from core.toolbar import ModernToolbar
 
+def resource_path(relative_path):
+    """ Dosya yollarını EXE uyumlu hale getirir """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 if __name__ == "__main__":
     # Yüksek DPI ekranlar için ölçeklendirme
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
@@ -15,7 +23,7 @@ if __name__ == "__main__":
     
     # Uygulama ikonunu assets klasöründen yükle
     base_path = os.path.dirname(os.path.abspath(__file__))
-    icon_path = os.path.join(base_path, "Assets", "VIZIA.ico")
+    icon_path = resource_path("Vizia/Assets/VIZIA.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     
