@@ -4,9 +4,7 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QDialog, QVBoxLayout, QPu
 from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QFont, QCursor, QPen
 from PyQt5.QtCore import Qt, QPoint, QTimer, QStandardPaths
 
-# Kendi modüllerin
 from ui_components import ModernNotification, ModernColorPicker
-# DÜZELTME 1: Eski 'StandaloneText' yerine yeni 'ViziaTextItem' import edildi
 from text_widgets import ViziaTextItem 
 
 class AboutDialog(QDialog):
@@ -128,12 +126,46 @@ class DrawingOverlay(QMainWindow):
         self.toast = ModernNotification(message, self)
         self.toast.show_animated()
 
+    # --- YENİ EKLENEN FONKSİYON: GÜVENLİ SİLME ---
+    def remove_text_item(self, text_item):
+        """Metin kutusunu güvenli bir şekilde geçmişten siler."""
+        target = self.board_history if self.whiteboard_mode else self.desktop_history
+        
+        # Listeyi tersten tarayıp bu objeyi bul ve listeden çıkar
+        # (Tersten taramak silme işlemlerinde daha güvenlidir)
+        for i in range(len(target) - 1, -1, -1):
+            item = target[i]
+            if isinstance(item, dict) and item.get('obj') == text_item:
+                target.pop(i)
+                break
+        
+        # Listeden çıktıktan sonra widget'ı güvenle yok et
+        text_item.deleteLater()
+        self.update()
+
     def add_text(self):
-        # DÜZELTME 2: 'StandaloneText' kullanımı 'ViziaTextItem' ile değiştirildi
         txt = ViziaTextItem(self, self.whiteboard_mode, self.current_color)
-        pos = QCursor.pos()
-        # Metin kutusunu imlecin olduğu yere (biraz ortalayarak) taşı
-        txt.move(pos.x() - 25, pos.y() - 20)
+        
+        # --- KONUM HESAPLAMA (Toolbar'ın yanına) ---
+        start_x, start_y = 100, 100 # Varsayılan (Toolbar yoksa)
+        
+        if self.toolbar:
+            # Toolbar'ın sağına koymaya çalış (Toolbar X + Genişlik + 20px boşluk)
+            target_x = self.toolbar.x() + self.toolbar.width() + 20
+            target_y = self.toolbar.y()
+            
+            # Eğer sağ tarafta ekran bittiyse, soluna koy
+            screen_width = QApplication.primaryScreen().size().width()
+            if target_x + 200 > screen_width:
+                target_x = self.toolbar.x() - 220
+                
+            start_x, start_y = target_x, target_y
+
+        txt.move(start_x, start_y)
+        
+        # Güvenli silme sinyalini bağla (CRASH FIX)
+        txt.delete_requested.connect(self.remove_text_item)
+        
         target = self.board_history if self.whiteboard_mode else self.desktop_history
         target.append({'type': 'text', 'obj': txt})
 
@@ -144,8 +176,14 @@ class DrawingOverlay(QMainWindow):
         painter.drawPixmap(0, 0, self.canvas)
         for item in self.board_history + self.desktop_history:
             if isinstance(item, dict) and item.get('type') == 'text':
-                is_visible = item['obj'].creation_mode == self.whiteboard_mode
-                item['obj'].setVisible(is_visible)
+                # Sadece objesi hala yaşayanları çiz (Ekstra güvenlik)
+                try:
+                    if item['obj'].isVisible():
+                        is_visible = item['obj'].creation_mode == self.whiteboard_mode
+                        item['obj'].setVisible(is_visible)
+                except RuntimeError:
+                    # Obje silinmişse pas geç
+                    continue
 
     def mousePressEvent(self, event):
         if self.drawing_mode != "move": self.force_focus()
