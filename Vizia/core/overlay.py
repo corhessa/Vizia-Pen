@@ -14,7 +14,7 @@ class DrawingOverlay(QMainWindow):
         super().__init__()
         self.settings = SettingsManager()
         
-        # Overlay en altta olmalı (çizim alanı), diğer pencereler bunun üstüne çıkacak
+        # Çizim ekranı en altta
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.showFullScreen()
@@ -40,10 +40,34 @@ class DrawingOverlay(QMainWindow):
         
         self.setFocusPolicy(Qt.StrongFocus)
 
+    # --- UI KONTROLÜ ---
+    def is_mouse_on_ui(self, pos):
+        """Fare şu an Toolbar veya Ek Araçlar panelinin üzerinde mi?"""
+        if self.toolbar:
+            global_pos = self.mapToGlobal(pos)
+            
+            # 1. Ana Toolbar kontrolü
+            if self.toolbar.geometry().contains(global_pos):
+                return True
+            
+            # 2. Ek Araçlar (Drawer) kontrolü
+            if hasattr(self.toolbar, 'drawer') and self.toolbar.drawer.isVisible():
+                if self.toolbar.drawer.geometry().contains(global_pos):
+                    return True
+        return False
+
+    def force_focus(self):
+        self.activateWindow()
+        self.setFocus()
+        if self.toolbar:
+            self.toolbar.raise_()
+            if hasattr(self.toolbar, 'drawer') and self.toolbar.drawer.isVisible():
+                self.toolbar.drawer.raise_()
+
+    # --- KLAVYE ---
     def keyPressEvent(self, event):
         if self.is_selecting_region and event.key() == Qt.Key_Escape:
-            self.cancel_screenshot()
-            return
+            self.cancel_screenshot(); return
             
         key = event.key()
         if key == self.settings.get_key_code("board_mode"): self.toolbar.toggle_board() if self.toolbar else None
@@ -55,15 +79,14 @@ class DrawingOverlay(QMainWindow):
         elif key == self.settings.get_key_code("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
         elif key == self.settings.get_key_code("color_picker"): self.toolbar.select_color() if self.toolbar else None
 
-    # --- SCREENSHOT İŞLEMLERİ ---
+    # --- SCREENSHOT ---
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
-        self.drawing = False 
+        self.drawing = False
         self.is_selecting_region = True
         self.select_start = QPoint()
         self.select_end = QPoint()
         self.setCursor(Qt.CrossCursor)
-        # İSTENEN METİN:
         self.show_toast("Alanı seçmek için sürükleyin (Tam ekran için tıklayın)")
         self.update()
 
@@ -77,48 +100,53 @@ class DrawingOverlay(QMainWindow):
         self.is_selecting_region = False
         self.setCursor(Qt.ArrowCursor)
         self.update()
-        QApplication.processEvents() # UI'ın güncellenmesini bekle
+        QApplication.processEvents()
         QTimer.singleShot(100, lambda: self._perform_save(crop_rect))
 
     def _perform_save(self, crop_rect):
         try:
             save_path = self.settings.get("save_path")
             success = ScreenshotManager.save_screenshot(crop_rect, save_path)
-            
-            if success:
-                self.show_toast(f"Kaydedildi!")
-            else:
-                self.show_toast("Hata: Kaydedilemedi!")
-        except Exception as e:
-            print(f"Save Crash Prevention: {e}")
-            self.show_toast("Hata: Beklenmedik bir sorun oluştu.")
+            if success: self.show_toast(f"Kaydedildi!")
+            else: self.show_toast("Hata: Kaydedilemedi!")
+        except:
+            self.show_toast("Kritik Hata: Kayıt Başarısız")
             
         if self.toolbar: self.toolbar.show()
         self.force_focus()
 
-    # --- MOUSE OLAYLARI (SS Modunda Return ile Çıkış) ---
+    # --- MOUSE EVENTS (GÜNCELLENEN KISIM) ---
     def mousePressEvent(self, event):
+        # 1. SS Modu
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton:
-                self.select_start = event.pos()
-                self.select_end = event.pos()
-                self.update()
-            return # Çizim yapma, çık
+                self.select_start = event.pos(); self.select_end = event.pos(); self.update()
+            return 
 
+        # 2. UI Koruması: Sadece TIKLAMA anında kontrol et.
+        # Eğer panele tıklıyorsak çizim BAŞLATMA.
+        if self.is_mouse_on_ui(event.pos()):
+            return 
+
+        # 3. Çizim Başlat
         if event.button() == Qt.LeftButton:
             self.drawing = True
-            self.start_point = event.pos()
-            self.last_point = event.pos()
-            self.current_stroke_path = QPainterPath()
-            self.current_stroke_path.moveTo(self.start_point)
+            self.start_point = event.pos(); self.last_point = event.pos()
+            self.current_stroke_path = QPainterPath(); self.current_stroke_path.moveTo(self.start_point)
 
     def mouseMoveEvent(self, event):
+        # 1. SS Modu
         if self.is_selecting_region:
-            self.select_end = event.pos()
-            self.update()
-            return # Çizim yapma, çık
+            self.select_end = event.pos(); self.update()
+            return 
 
+        # 2. Çizim Devamı
+        # BURADA UI KONTROLÜ YOK. 
+        # Çizim bir kere başladıysa (dışarıda), elin panelin üzerine kaysa bile çizim devam eder.
+        # Panel üstte olduğu için çizgi arkada kalır.
+        
         if not self.drawing: return
+        
         if self.drawing_mode == "pen":
             painter = QPainter(self.canvas)
             painter.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -133,24 +161,40 @@ class DrawingOverlay(QMainWindow):
             if event.button() == Qt.LeftButton:
                 self.select_end = event.pos()
                 selection_rect = QRect(self.select_start, self.select_end).normalized()
-                # Çok küçükse tam ekran al
-                if selection_rect.width() < 5 or selection_rect.height() < 5:
-                    self._finalize_screenshot(None)
-                else:
-                    self._finalize_screenshot(selection_rect)
-            return # Çizim yapma, çık
+                if selection_rect.width() < 5 or selection_rect.height() < 5: self._finalize_screenshot(None) 
+                else: self._finalize_screenshot(selection_rect)
+            return 
 
         if not self.drawing: return
+        
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
         if self.drawing_mode == "pen":
             hist.append({'type': 'path', 'path': QPainterPath(self.current_stroke_path), 'color': QColor(self.current_color), 'width': self.brush_size})
         elif self.drawing_mode in ["line", "rect", "ellipse"]:
             hist.append({'type': 'shape', 'shape': self.drawing_mode, 'start': self.start_point, 'end': event.pos(), 'color': QColor(self.current_color), 'width': self.brush_size})
             self.redraw_canvas()
-        self.drawing = False
-        self.update()
+        
+        self.drawing = False; self.update()
 
-    # --- DİĞER STANDART FONKSİYONLAR ---
+    # --- DİĞERLERİ ---
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), Qt.white if self.whiteboard_mode else QColor(0,0,0,1))
+        painter.drawPixmap(0, 0, self.canvas)
+        
+        if self.is_selecting_region:
+            painter.setBrush(QColor(0, 0, 0, 80)); painter.setPen(Qt.NoPen)
+            full_rect = self.rect(); selection_rect = QRect(self.select_start, self.select_end).normalized()
+            clip = QRegion(full_rect).subtracted(QRegion(selection_rect))
+            painter.setClipRegion(clip); painter.fillRect(full_rect, QColor(0, 0, 0, 80)); painter.setClipRegion(QRegion(full_rect)) 
+            painter.setPen(QPen(Qt.white, 2, Qt.DashLine)); painter.setBrush(Qt.NoBrush); painter.drawRect(selection_rect)
+            
+        if self.drawing and self.drawing_mode in ["line", "rect", "ellipse"]:
+            painter.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            if self.drawing_mode == "line": painter.drawLine(self.start_point, self.last_point)
+            elif self.drawing_mode == "rect": painter.drawRect(QRect(self.start_point, self.last_point).normalized())
+            elif self.drawing_mode == "ellipse": painter.drawEllipse(QRect(self.start_point, self.last_point).normalized())
+
     def open_image_loader(self):
         path, _ = QFileDialog.getOpenFileName(self, "Görsel Seç", "", "Resimler (*.png *.jpg *.jpeg *.bmp)")
         if path:
@@ -160,6 +204,7 @@ class DrawingOverlay(QMainWindow):
             self.image_widgets.append(img)
             hist = self.board_history if self.whiteboard_mode else self.desktop_history
             hist.append({'type': 'image', 'obj': img})
+        self.force_focus()
 
     def remove_from_history(self, widget):
         if widget in self.image_widgets: self.image_widgets.remove(widget)
@@ -186,40 +231,6 @@ class DrawingOverlay(QMainWindow):
                 except: pass
             self.redraw_canvas()
 
-    def redraw_canvas(self):
-        self.canvas.fill(Qt.transparent)
-        painter = QPainter(self.canvas)
-        hist = self.board_history if self.whiteboard_mode else self.desktop_history
-        for item in hist:
-            if item.get('type') == 'path':
-                painter.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                painter.drawPath(item['path'])
-            elif item.get('type') == 'shape':
-                painter.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                if item['shape'] == 'line': painter.drawLine(item['start'], item['end'])
-                elif item['shape'] == 'rect': painter.drawRect(QRect(item['start'], item['end']).normalized())
-                elif item['shape'] == 'ellipse': painter.drawEllipse(QRect(item['start'], item['end']).normalized())
-        painter.end()
-        for img in self.image_widgets: img.setVisible(img.creation_mode == self.whiteboard_mode)
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), Qt.white if self.whiteboard_mode else QColor(0,0,0,1))
-        painter.drawPixmap(0, 0, self.canvas)
-        if self.is_selecting_region:
-            painter.setBrush(QColor(0, 0, 0, 80)); painter.setPen(Qt.NoPen)
-            full_rect = self.rect(); selection_rect = QRect(self.select_start, self.select_end).normalized()
-            clip = QRegion(full_rect).subtracted(QRegion(selection_rect))
-            painter.setClipRegion(clip); painter.fillRect(full_rect, QColor(0, 0, 0, 80)); painter.setClipRegion(QRegion(full_rect)) 
-            painter.setPen(QPen(Qt.white, 2, Qt.DashLine)); painter.setBrush(Qt.NoBrush); painter.drawRect(selection_rect)
-        if self.drawing and self.drawing_mode in ["line", "rect", "ellipse"]:
-            painter.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            if self.drawing_mode == "line": painter.drawLine(self.start_point, self.last_point)
-            elif self.drawing_mode == "rect": painter.drawRect(QRect(self.start_point, self.last_point).normalized())
-            elif self.drawing_mode == "ellipse": painter.drawEllipse(QRect(self.start_point, self.last_point).normalized())
-
-    def force_focus(self): self.activateWindow(); self.raise_(); self.setFocus()
     def clear_all(self):
         target = self.board_history if self.whiteboard_mode else self.desktop_history
         for item in target[:]:
