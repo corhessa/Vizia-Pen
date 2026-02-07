@@ -4,8 +4,8 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QDialog, QVBoxLayout, QPu
 from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QFont, QCursor, QPen
 from PyQt5.QtCore import Qt, QPoint, QTimer, QStandardPaths
 
-from ui_components import ModernNotification, ModernColorPicker
-from text_widgets import ViziaTextItem 
+from ui.ui_components import ModernNotification, ModernColorPicker
+from ui.text_widgets import ViziaTextItem 
 
 # AboutDialog sınıfı aynen kalabilir, buraya sığdırmak için kısaltıyorum...
 class AboutDialog(QDialog):

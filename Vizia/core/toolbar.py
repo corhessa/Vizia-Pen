@@ -2,7 +2,7 @@ import os
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QSlider, QLabel, QFrame, QApplication
 from PyQt5.QtGui import QPixmap, QColor
 from PyQt5.QtCore import Qt, QTimer
-from ui_components import ModernColorPicker
+from ui.ui_components import ModernColorPicker
 
 class ModernToolbar(QWidget):
     def __init__(self, overlay):
