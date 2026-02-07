@@ -1,5 +1,14 @@
+# core/toolbar.py
+
 import sys
 import os
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QSlider, 
+                             QLabel, QFrame, QApplication)
+from PyQt5.QtGui import QPixmap, QColor
+from PyQt5.QtCore import Qt, QTimer
+from ui.ui_components import ModernColorPicker
+# YENİ: Stilleri import et
+from ui.styles import TOOLBAR_STYLESHEET, get_color_btn_style
 
 def resource_path(relative_path):
     """ Dosya yollarını EXE uyumlu hale getirir """
@@ -8,12 +17,6 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
-
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QSlider, 
-                             QLabel, QFrame, QApplication, QToolTip, QGraphicsDropShadowEffect)
-from PyQt5.QtGui import QPixmap, QColor
-from PyQt5.QtCore import Qt, QTimer
-from ui.ui_components import ModernColorPicker
 
 class ModernToolbar(QWidget):
     def __init__(self, overlay):
@@ -24,20 +27,6 @@ class ModernToolbar(QWidget):
         self.custom_color_index = 0
         self.last_active_tool = "pen"
         
-        # Tooltip stilini bir değişken olarak tutuyoruz ki 
-        # renk değiştiren butonlara tekrar tekrar hatırlatabilelim.
-        self.tooltip_style = """
-            QToolTip {
-                background-color: #ffffff;
-                color: #000000;
-                border: 1px solid #d1d1d6;
-                border-radius: 4px;
-                padding: 5px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
-                font-weight: bold;
-            }
-        """
         self.initUI()
 
     def initUI(self):
@@ -45,55 +34,8 @@ class ModernToolbar(QWidget):
         self.setFixedWidth(75)
         self.setFixedHeight(630) 
         
-        # --- ANA CSS ---
-        # #btn_shot (Kamera) için özel rengi buraya taşıdık.
-        # Böylece tooltip ayarını ezmiyor.
-        self.setStyleSheet(f"""
-            QWidget {{ 
-                background-color: #1c1c1e; 
-                border-radius: 20px; 
-                border: 1.5px solid #3a3a3c; 
-            }}
-            
-            QPushButton {{ 
-                background-color: #2c2c2e; 
-                color: white; 
-                border: none; 
-                border-radius: 10px; 
-                font-size: 18px; 
-                min-width: 40px; 
-                min-height: 40px; 
-            }}
-            
-            QPushButton:hover {{ 
-                background-color: #3a3a40; 
-                border: 1px solid #007aff; 
-            }}
-
-            QPushButton[active="true"] {{
-                background-color: #007aff;
-                border: 1px solid white;
-            }}
-            
-            QPushButton[state="red"] {{ background-color: #ff3b30; }}
-            QPushButton[state="green"] {{ background-color: #4cd964; }}
-            
-            /* KAMERA BUTONU ÖZEL RENGİ */
-            QPushButton#btn_shot {{
-                background-color: #5856d6;
-            }}
-            QPushButton#btn_shot:hover {{
-                border: 1px solid white;
-            }}
-            
-            QLabel {{ 
-                color: white; 
-                background: transparent; 
-                border: none; 
-            }}
-            
-            {self.tooltip_style}
-        """)
+        # YENİ: CSS'i styles.py dosyasından alıyoruz
+        self.setStyleSheet(TOOLBAR_STYLESHEET)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10) 
@@ -143,13 +85,12 @@ class ModernToolbar(QWidget):
         btn_clear = self.create_btn("🗑️", self.overlay.clear_all, "Hepsini Temizle")
         layout.addWidget(btn_clear, 0, Qt.AlignCenter)
         
-        # Ekran Görüntüsü Butonu (ID ataması yaptık, CSS yukarıdan alacak)
+        # Ekran Görüntüsü Butonu
         self.btn_shot = self.create_btn("📸", self.overlay.take_screenshot, "Ekran Görüntüsü Al")
         self.btn_shot.setObjectName("btn_shot") 
         layout.addWidget(self.btn_shot, 0, Qt.AlignCenter)
         
         self.btn_color = self.create_btn("⬤", self.select_color, "Renk Seç")
-        # Renk butonunun stilini ilk açılışta ayarla
         self.update_color_btn_style()
         layout.addWidget(self.btn_color, 0, Qt.AlignCenter)
         
@@ -212,7 +153,8 @@ class ModernToolbar(QWidget):
         self.style().polish(self.btn_draw) 
 
     def show_about(self):
-        from core.overlay import AboutDialog
+        # YENİ: AboutDialog artık ui.dialogs içinde
+        from ui.dialogs import AboutDialog
         AboutDialog(self).exec_()
 
     def select_color(self):
@@ -224,13 +166,9 @@ class ModernToolbar(QWidget):
         QTimer.singleShot(10, self.overlay.force_focus)
 
     def update_color_btn_style(self):
-        # Renk butonunun stilini güncellerken Tooltip CSS'ini sonuna ekliyoruz.
-        # Bu kritik hamle, renk değişse bile tooltip'in beyaz kalmasını sağlıyor.
+        # YENİ: Style fonksiyonunu styles.py'dan alıp kullanıyoruz
         color_hex = self.overlay.current_color.name()
-        self.btn_color.setStyleSheet(f"""
-            QPushButton {{ color: {color_hex}; font-size: 20px; }}
-            {self.tooltip_style}
-        """)
+        self.btn_color.setStyleSheet(get_color_btn_style(color_hex))
 
     def update_brush_size(self, val):
         self.overlay.brush_size = val

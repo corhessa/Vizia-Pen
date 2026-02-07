@@ -1,155 +1,13 @@
-import sys
-import os
+# core/overlay.py
 
-def resource_path(relative_path):
-    """ Dosya yollarını EXE uyumlu hale getirir """
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-import datetime
-from PyQt5.QtWidgets import (QMainWindow, QApplication, QDialog, QVBoxLayout, 
-                             QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect)
+from PyQt5.QtWidgets import (QMainWindow, QApplication)
 from PyQt5.QtGui import (QPainter, QPixmap, QPainterPath, QColor, QPen, QRegion)
-from PyQt5.QtCore import (Qt, QPoint, QTimer, QStandardPaths, QRect)
+from PyQt5.QtCore import (Qt, QPoint, QTimer, QRect)
 
 from ui.ui_components import ModernNotification
 from ui.text_widgets import ViziaTextItem 
-
-class AboutDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(400, 520)
-        self.old_pos = None
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10) 
-
-        # --- BEYAZ KART (Ana Taşıyıcı) ---
-        self.container = QFrame()
-        self.container.setStyleSheet("""
-            QFrame {
-                background-color: #ffffff;
-                border-radius: 20px;
-                border: 1px solid #f0f0f0;
-            }
-            QLabel {
-                color: #000000;
-                font-family: 'Segoe UI', sans-serif;
-                border: none;
-            }
-        """)
-        
-        # Kartın Gölgesi
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(25)
-        shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(QColor(0, 0, 0, 40))
-        self.container.setGraphicsEffect(shadow)
-        
-        layout.addWidget(self.container)
-
-        # İçerik Düzeni
-        content_layout = QVBoxLayout(self.container)
-        content_layout.setContentsMargins(30, 45, 30, 45)
-        content_layout.setSpacing(15)
-
-        # 1. LOGO ALANI
-        logo_label = QLabel()
-        logo_label.setAlignment(Qt.AlignCenter)
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logo_path = resource_path("Vizia/Assets/VIZIA.png") 
-        if not os.path.exists(logo_path):
-            logo_path = os.path.join(base_path, "Assets", "VIZIA.ico")
-        
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path)
-            # Logoyu biraz büyüttük ve netleştirdik
-            scaled_pixmap = pixmap.scaled(115, 115, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(scaled_pixmap)
-        else:
-            logo_label.setText("V")
-            logo_label.setStyleSheet("font-size: 80px; font-weight: bold; color: #000;")
-        content_layout.addWidget(logo_label, 0, Qt.AlignHCenter)
-
-        # 2. BAŞLIK
-        title = QLabel("VIZIA PEN")
-        title.setStyleSheet("font-size: 28px; font-weight: 900; letter-spacing: 0.5px; color: #111;")
-        title.setAlignment(Qt.AlignCenter)
-        content_layout.addWidget(title)
-        
-        content_layout.addStretch()
-
-        # 3. AÇIKLAMA METNİ
-        aciklama_metni = """
-        <p style='line-height: 160%; font-size: 14px; color: #444;'>
-        Vizia Pen, ekran üzerinde <b>özgürce</b> çizim yapmanızı ve <b>fikirlerinizi</b> 
-        anında görselleştirmenizi sağlayan <b>profesyonel</b> bir araçtır.
-        </p>
-        <br>
-        <p style='color: #999; font-size: 12px;'>
-        Geliştirici: <b>Corhessa</b> &nbsp;|&nbsp; v1.0
-        </p>
-        """
-        info_label = QLabel(aciklama_metni)
-        info_label.setWordWrap(True)
-        info_label.setAlignment(Qt.AlignCenter)
-        info_label.setTextFormat(Qt.RichText)
-        content_layout.addWidget(info_label)
-
-        content_layout.addSpacing(25)
-
-        # 4. YENİLENMİŞ PREMİUM 'KAPAT' BUTONU
-        btn_ok = QPushButton("Kapat")
-        btn_ok.setCursor(Qt.PointingHandCursor)
-        btn_ok.clicked.connect(self.accept)
-        btn_ok.setFixedSize(160, 44) 
-        
-        # Tasarım: Hafif Gradient + Modern Font + Tam Yuvarlak Köşeler
-        btn_ok.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #007aff, stop:1 #005bb5);
-                color: #ffffff;
-                border: none;
-                border-radius: 22px;
-                font-family: 'Segoe UI';
-                font-weight: 700;
-                font-size: 14px;
-                letter-spacing: 0.5px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0088ff, stop:1 #0066cc);
-            }
-            QPushButton:pressed {
-                background-color: #004494;
-                padding-top: 2px; /* Basma hissi */
-            }
-        """)
-        
-        
-        btn_shadow = QGraphicsDropShadowEffect()
-        btn_shadow.setBlurRadius(15)
-        btn_shadow.setColor(QColor(0, 122, 255, 80)) # Mavi gölge
-        btn_shadow.setOffset(0, 5)
-        btn_ok.setGraphicsEffect(btn_shadow)
-        
-        content_layout.addWidget(btn_ok, 0, Qt.AlignHCenter)
-
-    # Pencere Sürükleme
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton: self.old_pos = event.globalPos()
-    def mouseMoveEvent(self, event):
-        if self.old_pos:
-            delta = event.globalPos() - self.old_pos
-            self.move(self.x() + delta.x(), self.y() + delta.y())
-            self.old_pos = event.globalPos()
-    def mouseReleaseEvent(self, event): self.old_pos = None
-
+# YENİ: ScreenshotManager'ı import et
+from core.screenshot import ScreenshotManager
 
 class DrawingOverlay(QMainWindow):
     def __init__(self):
@@ -248,16 +106,10 @@ class DrawingOverlay(QMainWindow):
     def take_screenshot(self):
         """ Ekran görüntüsü modunu başlatır """
         if self.toolbar: self.toolbar.hide()
-        
-        # Seçim modunu aktif et
         self.is_selecting_region = True
         self.select_start = QPoint()
         self.select_end = QPoint()
-        
-        # İmleci değiştir (Crosshair)
         self.setCursor(Qt.CrossCursor)
-        
-        # Kullanıcıyı bilgilendir
         self.show_toast("Alanı seçmek için sürükleyin (Tam ekran için tıklayın)")
         self.update()
 
@@ -269,35 +121,18 @@ class DrawingOverlay(QMainWindow):
         self.update()
 
     def _finalize_screenshot(self, crop_rect=None):
-        """ Görüntüyü yakalar ve kaydeder """
-        # Önce UI temizliği (Seçim kutusu ve karartma kalkmalı)
+        """ Görüntüyü yakalar ve kaydeder (Helper class kullanır) """
         self.is_selecting_region = False
         self.setCursor(Qt.ArrowCursor)
         self.update() 
-        QApplication.processEvents() # Ekrana yansımasını bekle
+        QApplication.processEvents() 
         
-        # Görsel temizlendiğinden emin olmak için çok kısa bir gecikme
-        QTimer.singleShot(50, lambda: self._save_to_disk(crop_rect))
+        # YENİ: Kaydetme işini ScreenshotManager yapıyor
+        QTimer.singleShot(50, lambda: self._perform_save(crop_rect))
 
-    def _save_to_disk(self, crop_rect):
-        screen = QApplication.primaryScreen()
-        screenshot = screen.grabWindow(0) # Tüm masaüstünü al
-        
-        # Eğer alan seçildiyse kırp
-        if crop_rect:
-            # High DPI ekranlar için piksel oranını hesapla
-            dpr = screen.devicePixelRatio()
-            x = int(crop_rect.x() * dpr)
-            y = int(crop_rect.y() * dpr)
-            w = int(crop_rect.width() * dpr)
-            h = int(crop_rect.height() * dpr)
-            screenshot = screenshot.copy(x, y, w, h)
-            
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        pics = QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
-        path = os.path.join(pics, f"Vizia_{timestamp}.png")
-        
-        if screenshot.save(path): 
+    def _perform_save(self, crop_rect):
+        success = ScreenshotManager.save_screenshot(crop_rect)
+        if success:
             self.show_toast("Başarıyla Kaydedildi !")
         else:
             self.show_toast("Hata: Kaydedilemedi!")
@@ -336,12 +171,14 @@ class DrawingOverlay(QMainWindow):
     def paintEvent(self, event):
         painter = QPainter(self)
         
-        # 1. Zemin
+        # 1. Zemin (KRİTİK DÜZELTME)
         if self.whiteboard_mode: 
             painter.fillRect(self.rect(), Qt.white)
         else: 
-            # Masaüstü modunda zemin şeffaf, paintEvent otomatik temizler
-            pass
+            # Masaüstü modunda fare olaylarını yakalayabilmek için 
+            # neredeyse görünmez (Alpha 1) bir zemin çizmemiz gerekiyor.
+            # Eğer burası "pass" olursa, tıklamalar pencerenin içinden geçip masaüstüne gider.
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 1)) 
 
         # 2. Mevcut Çizimler
         painter.drawPixmap(0, 0, self.canvas)
@@ -349,14 +186,13 @@ class DrawingOverlay(QMainWindow):
         # 3. Alan Seçimi Görselleri
         if self.is_selecting_region:
             # Seçili olmayan alanı karart (Dim Effect)
-            painter.setBrush(QColor(0, 0, 0, 80)) # Siyah, %30 opaklık
+            painter.setBrush(QColor(0, 0, 0, 80)) 
             painter.setPen(Qt.NoPen)
             
             full_rect = self.rect()
             selection_rect = QRect(self.select_start, self.select_end).normalized()
             
             # Karartmayı seçili alanın DIŞINA uygula
-            # QRegion kullanarak "Tam Ekran - Seçili Alan" işlemi yapıyoruz
             clip_region = QRegion(full_rect).subtracted(QRegion(selection_rect))
             
             painter.setClipRegion(clip_region)
@@ -373,11 +209,9 @@ class DrawingOverlay(QMainWindow):
             if selection_rect.width() > 0:
                 txt = f"{selection_rect.width()} x {selection_rect.height()}"
                 painter.setPen(Qt.white)
-                # Yazıyı kutunun hemen üzerine koy
                 painter.drawText(selection_rect.topLeft() + QPoint(5, -5), txt)
 
     def mousePressEvent(self, event):
-        # Eğer seçim modundaysak, çizim yapma, seçim başlat
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton:
                 self.select_start = event.pos()
@@ -393,7 +227,6 @@ class DrawingOverlay(QMainWindow):
             self.current_stroke_path.moveTo(self.last_point)
 
     def mouseMoveEvent(self, event):
-        # Seçim modunda sürükleme
         if self.is_selecting_region:
             self.select_end = event.pos()
             self.update()
@@ -421,13 +254,10 @@ class DrawingOverlay(QMainWindow):
         self.last_point = current_pos; self.update()
 
     def mouseReleaseEvent(self, event):
-        # Seçim bittiğinde yakala
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton:
                 self.select_end = event.pos()
                 selection_rect = QRect(self.select_start, self.select_end).normalized()
-                
-                # Çok küçükse (tıklama gibi) -> Tam Ekran
                 if selection_rect.width() < 10 or selection_rect.height() < 10:
                     self._finalize_screenshot(None) 
                 else:
