@@ -1,29 +1,35 @@
 # ui/ui_components.py
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QDialog, 
-                             QGridLayout, QGraphicsOpacityEffect, QSlider, QApplication, QSizeGrip, QFrame)
+                             QGridLayout, QGraphicsOpacityEffect, QSlider, QApplication, 
+                             QSizeGrip, QFrame, QSizePolicy)
 from PyQt5.QtGui import QPainter, QPen, QColor, QBrush, QLinearGradient, QPixmap, QIcon, QCursor
-from PyQt5.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, pyqtSignal, QSize
+from PyQt5.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, pyqtSignal, QSize, QRect
 
-# --- RESİM NESNESİ (Aynı kalıyor) ---
 class ViziaImageItem(QWidget):
     request_close = pyqtSignal(QWidget)
-    request_stamp = pyqtSignal(QWidget)
+    request_stamp = pyqtSignal()
     
     def __init__(self, image_path, creation_mode, parent=None):
         super().__init__(parent)
         self.creation_mode = creation_mode
         self.setWindowFlags(Qt.SubWindow)
         self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setAttribute(Qt.WA_Hover)
         self.setStyleSheet("background: transparent;")
+        
+        self.setCursor(Qt.ArrowCursor)
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
         
+        # --- Üst Panel ---
         self.control_frame = QFrame()
         self.control_frame.setFixedHeight(32)
-        self.control_frame.setStyleSheet("QFrame { background-color: #1c1c1e; border-top-left-radius: 10px; border-top-right-radius: 10px; border: 1px solid #3a3a3c; }")
+        self.control_frame.setStyleSheet("""
+            QFrame { background-color: #1c1c1e; border-top-left-radius: 10px; border-top-right-radius: 10px; border: 1px solid #3a3a3c; }
+        """)
         self.control_layout = QHBoxLayout(self.control_frame)
         self.control_layout.setContentsMargins(5, 0, 5, 0)
         self.control_layout.setSpacing(5)
@@ -36,44 +42,102 @@ class ViziaImageItem(QWidget):
             btn.setStyleSheet(f"QPushButton {{ background:{bg}; color:white; border-radius:4px; font-weight:bold; }} QPushButton:hover {{ background:#3a3a40; }}")
             return btn
 
+        # --- GEREKSİZ BUTONLAR KALDIRILDI ---
+        # Sadece Sabitle ve Kapat butonları kaldı
         self.control_layout.addWidget(create_btn("📌", "Sabitle", self.request_stamp.emit, "#007aff"))
-        self.control_layout.addWidget(create_btn("▲", "Öne", self.raise_))
-        self.control_layout.addWidget(create_btn("▼", "Arka", self.lower))
         self.control_layout.addStretch()
         self.control_layout.addWidget(create_btn("✕", "Kapat", self.close, "#ff3b30"))
         
         self.layout.addWidget(self.control_frame)
         self.control_frame.hide()
         
+        # --- Resim Alanı ---
         self.image_container = QLabel()
         self.original_pixmap = QPixmap(image_path)
         self.image_container.setPixmap(self.original_pixmap)
         self.image_container.setScaledContents(True)
+        self.image_container.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        
         self.layout.addWidget(self.image_container)
         
+        # --- Tutamaç (Grip) ---
         self.grip = QSizeGrip(self)
+        self.grip.setCursor(Qt.SizeFDiagCursor)
+        self.grip.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 180); 
+            border-top-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+            width: 16px;
+            height: 16px;
+        """)
+        self.grip.hide() 
+        
         self.old_pos = None
+        self.is_resizing = False
+        self.is_moving = False
+        self.drag_start_pos = QPoint()
+        self.resize_start_geo = QRect()
+        
         w, h = self.original_pixmap.width(), self.original_pixmap.height()
         if w > 400: h = int(h * (400/w)); w = 400
         self.resize(w, h + 32)
         self.show()
 
     def resizeEvent(self, event):
-        self.grip.move(self.width() - 20, self.height() - 20)
+        rect = self.rect()
+        self.grip.move(rect.right() - self.grip.width(), rect.bottom() - self.grip.height())
         super().resizeEvent(event)
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and not self.grip.geometry().contains(event.pos()):
-            self.old_pos = event.pos(); self.raise_()
-        super().mousePressEvent(event)
-    def mouseMoveEvent(self, event):
-        if self.old_pos: self.move(self.pos() + (event.pos() - self.old_pos))
-        super().mouseMoveEvent(event)
-    def mouseReleaseEvent(self, event): self.old_pos = None; super().mouseReleaseEvent(event)
-    def enterEvent(self, event): self.control_frame.show(); self.image_container.setStyleSheet("border: 1px solid #007aff;"); super().enterEvent(event)
-    def leaveEvent(self, event): self.control_frame.hide(); self.image_container.setStyleSheet("border: none;"); super().leaveEvent(event)
-    def closeEvent(self, event): self.request_close.emit(self); super().closeEvent(event)
 
-# --- NOTIFICATION (Aynı) ---
+    def mousePressEvent(self, event):
+        event.accept()
+        if event.button() == Qt.LeftButton:
+            if self.grip.isVisible() and self.grip.geometry().contains(event.pos()):
+                self.is_resizing = True
+                self.drag_start_pos = event.globalPos()
+                self.resize_start_geo = self.geometry()
+            else:
+                self.is_moving = True
+                self.drag_start_pos = event.pos()
+                self.raise_()
+                self.setCursor(Qt.SizeAllCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        event.accept()
+        if self.is_resizing:
+            delta = event.globalPos() - self.drag_start_pos
+            new_w = max(50, self.resize_start_geo.width() + delta.x())
+            new_h = max(50, self.resize_start_geo.height() + delta.y())
+            self.resize(new_w, new_h)
+        elif self.is_moving:
+            delta = event.pos() - self.drag_start_pos
+            self.move(self.pos() + delta)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.is_resizing = False
+        self.is_moving = False
+        self.setCursor(Qt.ArrowCursor)
+        super().mouseReleaseEvent(event)
+        
+    def enterEvent(self, event):
+        self.control_frame.show()
+        self.grip.show() 
+        self.image_container.setStyleSheet("border: 1px solid #007aff;")
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        self.control_frame.hide()
+        self.grip.hide()
+        self.image_container.setStyleSheet("border: none;")
+        self.unsetCursor()
+        super().leaveEvent(event)
+
+    def closeEvent(self, event):
+        self.request_close.emit(self)
+        super().closeEvent(event)
+
+# ... (ModernNotification ve ModernColorPicker AYNEN KALIYOR) ...
 class ModernNotification(QWidget):
     def __init__(self, message, parent=None):
         super().__init__(parent)
@@ -106,13 +170,12 @@ class ModernNotification(QWidget):
         self.fade_out.setDuration(600); self.fade_out.setStartValue(1.0); self.fade_out.setEndValue(0.0)
         self.fade_out.finished.connect(self.close); self.fade_out.start()
 
-# --- RENK SEÇİCİ (ESKİ HALİNE DÖNDÜRÜLDÜ + SETTINGS ENTEGRASYONU) ---
 class ModernColorPicker(QDialog):
     def __init__(self, initial_color, persistent_colors, settings_manager, parent_widget):
         super().__init__(parent_widget)
         self.selected_color = initial_color
         self.persistent_colors = persistent_colors
-        self.settings_manager = settings_manager # Ayar Yöneticisi eklendi
+        self.settings_manager = settings_manager 
         self.parent_context = parent_widget 
         self.hue = initial_color.hue() if initial_color.hue() != -1 else 0
         self.sat = initial_color.saturation()
@@ -157,7 +220,6 @@ class ModernColorPicker(QDialog):
         
         left_panel.addStretch()
         
-        # --- BUTONLAR (Ekle ve Sil) ---
         bottom_left_btns = QHBoxLayout()
         self.add_btn = QPushButton("Palete Ekle"); self.add_btn.setObjectName("ActionBtn")
         self.add_btn.clicked.connect(self.add_to_custom)
@@ -196,7 +258,6 @@ class ModernColorPicker(QDialog):
         return btn
 
     def get_toolbar(self):
-        # Toolbar'a ulaşmak için güvenli yol
         if hasattr(self.parent_context, 'overlay') and hasattr(self.parent_context.overlay, 'toolbar'):
             return self.parent_context.overlay.toolbar
         if hasattr(self.parent_context, 'toolbar'):
@@ -208,38 +269,25 @@ class ModernColorPicker(QDialog):
         if toolbar:
             idx = toolbar.custom_color_index
             color_hex = self.selected_color.name()
-            
-            # Bellekte güncelle
             self.persistent_colors[idx] = color_hex
-            
-            # UI güncelle
             chip = self.custom_chips[idx]
             chip.setStyleSheet(f"background-color: {color_hex}; border-radius: 4px; border: 1.5px solid #007aff;")
             try: chip.clicked.disconnect()
             except: pass
             chip.clicked.connect(lambda _, c=color_hex: self.set_direct_color(QColor(c)))
-            
             toolbar.custom_color_index = (idx + 1) % 10
-            
-            # AYARLARA KAYDET
             if self.settings_manager:
                 self.settings_manager.set("custom_colors", self.persistent_colors)
 
     def reset_custom(self):
         toolbar = self.get_toolbar()
         for i in range(10):
-            # Bellekte güncelle
             self.persistent_colors[i] = "#2c2c2e"
-            
-            # UI güncelle
             chip = self.custom_chips[i]
             chip.setStyleSheet("background-color: #2c2c2e; border-radius: 4px; border: 1.5px solid #3a3a3c;")
             try: chip.clicked.disconnect()
             except: pass
-            
         if toolbar: toolbar.custom_color_index = 0
-        
-        # AYARLARA KAYDET (Reset işlemi)
         if self.settings_manager:
             self.settings_manager.set("custom_colors", self.persistent_colors)
 
