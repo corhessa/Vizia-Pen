@@ -1,5 +1,6 @@
 {
     "save_path": "C:\\Users\\mls4g\\Pictures\\Vizia Screenshots",
+    "keep_colors": true,
     "hotkeys": {
         "board_mode": "Space",
         "drawer": "E",
@@ -21,6 +22,5 @@
         "#2c2c2e",
         "#2c2c2e",
         "#2c2c2e"
-    ],
-    "keep_colors": true
+    ]
 }

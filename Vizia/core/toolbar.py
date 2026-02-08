@@ -43,10 +43,19 @@ class ExtensionDrawer(QWidget):
         self.layout.setContentsMargins(5, 10, 5, 10)
         self.layout.setSpacing(8)
         
+        # 1. Klasör Butonu
         self.btn_folder = self.create_drawer_btn("add-folder.png", "Görsel Yükle", self.action_load_image)
         self.layout.addWidget(self.btn_folder)
+        
+        # 2. Geometri Butonu
         self.btn_geometry = self.create_drawer_btn("geometry.png", "Geometri Araçları", self.action_geometry)
         self.layout.addWidget(self.btn_geometry)
+
+        # 3. YENİ EKLENEN: Vizia Engine Butonu
+        # İkon olarak şimdilik 'gear.png' kullandım, istersen 'engine.png' bulup assets'e atabilirsin.
+        self.btn_engine = self.create_drawer_btn("gear.png", "Vizia Engine (3D Lab)", self.action_open_engine)
+        self.layout.addWidget(self.btn_engine)
+        
         self.layout.addStretch()
         
         self.anim = QPropertyAnimation(self, b"size")
@@ -78,6 +87,30 @@ class ExtensionDrawer(QWidget):
         except ValueError: next_mode = "line"
         self.toolbar_ref.overlay.drawing_mode = next_mode
         self.toolbar_ref.overlay.show_toast(f"Mod: {next_mode.upper()}")
+
+    # --- YENİ EKLENEN: ENGINE BAŞLATMA ---
+    def action_open_engine(self):
+        try:
+            # Sadece tıklandığında import ediyoruz ki açılışta yavaşlamasın
+            from core.web_galacean.web_widgets import ViziaEngineItem
+            
+            # Motor penceresini oluştur
+            self.engine_window = ViziaEngineItem(self.toolbar_ref.overlay)
+            self.engine_window.show()
+            
+            # Ekranın ortasına veya uygun bir yere taşı
+            screen_geo = QApplication.primaryScreen().geometry()
+            x = (screen_geo.width() - self.engine_window.width()) // 2
+            y = (screen_geo.height() - self.engine_window.height()) // 2
+            self.engine_window.move(x, y)
+            
+            # Drawer'ı kapat ki motor görünsün
+            self.toggle()
+            
+        except Exception as e:
+            print(f"Engine Başlatma Hatası: {e}")
+            if hasattr(self.toolbar_ref.overlay, 'show_toast'):
+                self.toolbar_ref.overlay.show_toast("Motor Yüklenemedi! (PyQtWebEngine kurulu mu?)")
 
     def update_position(self):
         if not self.isVisible(): return
