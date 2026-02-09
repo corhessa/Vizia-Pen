@@ -1,7 +1,7 @@
 # Vizia/core/overlay.py
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog
-from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QPen, QRegion, QCursor
+from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QPen, QRegion, QCursor, QKeySequence
 from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
 
 from core.settings import SettingsManager
@@ -14,6 +14,7 @@ class DrawingOverlay(QMainWindow):
         super().__init__()
         self.settings = SettingsManager()
         
+        # Overlay Ayarları
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.showFullScreen()
@@ -33,28 +34,51 @@ class DrawingOverlay(QMainWindow):
         self.drawing = False
         self.toolbar = None
         
-        # KİLİT YOK - KISITLAMA YOK
-        
         self.is_selecting_region = False
         self.select_start = QPoint()
         self.select_end = QPoint()
         
+        # Kısayolların çalışması için odak politikası
         self.setFocusPolicy(Qt.StrongFocus)
 
-    # UI Kontrolü: Mouse UI üzerindeyse çizimi engelle ama tıklamayı engelleme
+    # UI Kontrolü: Mouse UI üzerindeyse çizimi engelle ve O PENCEREYİ AKTİF ET
     def is_mouse_on_ui(self, pos):
         if self.toolbar:
             global_pos = self.mapToGlobal(pos)
-            if self.toolbar.geometry().contains(global_pos): return True
+            
+            # 1. Ana Toolbar
+            if self.toolbar.geometry().contains(global_pos): 
+                self.toolbar.raise_()
+                return True
+            
+            # 2. Drawer (Çekmece)
             if hasattr(self.toolbar, 'drawer') and self.toolbar.drawer.isVisible():
-                if self.toolbar.drawer.geometry().contains(global_pos): return True
-                
-            # Recorder penceresi üzerindeyse çizimi engelle
-            if hasattr(self.toolbar.drawer, 'recorder_window') and \
-               self.toolbar.drawer.recorder_window and \
-               self.toolbar.drawer.recorder_window.isVisible():
-                if self.toolbar.drawer.recorder_window.geometry().contains(global_pos):
+                if self.toolbar.drawer.geometry().contains(global_pos): 
+                    self.toolbar.drawer.raise_()
                     return True
+                
+                # 3. Kayıt Modülü Pencereleri (Kritik Düzeltme)
+                rec_win = getattr(self.toolbar.drawer, 'recorder_window', None)
+                if rec_win:
+                    # A) Ana Kayıt Paneli
+                    if rec_win.isVisible() and rec_win.geometry().contains(global_pos):
+                        rec_win.raise_()
+                        rec_win.activateWindow()
+                        return True
+                    
+                    # B) Mini Kontrol Paneli
+                    if hasattr(rec_win, 'mini_panel') and rec_win.mini_panel.isVisible():
+                         if rec_win.mini_panel.geometry().contains(global_pos):
+                             rec_win.mini_panel.raise_()
+                             rec_win.mini_panel.activateWindow()
+                             return True
+
+                    # C) Kamera Penceresi
+                    if hasattr(rec_win, 'camera_widget') and rec_win.camera_widget.isVisible():
+                        if rec_win.camera_widget.geometry().contains(global_pos):
+                            rec_win.camera_widget.raise_()
+                            rec_win.camera_widget.activateWindow()
+                            return True
         return False
 
     def force_focus(self):
@@ -64,20 +88,36 @@ class DrawingOverlay(QMainWindow):
 
     def update_cursor(self): pass
 
+    # Kısayol Kontrolü (Düzeltildi)
     def keyPressEvent(self, event):
         if self.is_selecting_region and event.key() == Qt.Key_Escape:
             self.cancel_screenshot(); return
             
         key = event.key()
+        # Modifiers (Ctrl, Shift, Alt) kontrolü
+        modifiers = int(event.modifiers())
+        
+        # Settings'den gelen stringi QKeySequence ile karşılaştıracağız
+        def check_hotkey(action_name):
+            hotkey_str = self.settings.get("hotkeys").get(action_name)
+            if not hotkey_str: return False
+            
+            # Basılan tuş kombinasyonunu oluştur
+            seq = QKeySequence(key | modifiers)
+            
+            # Ayarlardaki ile eşleşiyor mu?
+            return seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch or \
+                   (modifiers == 0 and key == QKeySequence(hotkey_str)[0])
+
         if key == Qt.Key_Backspace: self.undo()
-        elif key == self.settings.get_key_code("board_mode"): self.toolbar.toggle_board() if self.toolbar else None
-        elif key == self.settings.get_key_code("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
-        elif key == self.settings.get_key_code("undo"): self.undo()
-        elif key == self.settings.get_key_code("quit"): QApplication.quit()
-        elif key == self.settings.get_key_code("screenshot"): self.take_screenshot()
-        elif key == self.settings.get_key_code("clear"): self.clear_all()
-        elif key == self.settings.get_key_code("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
-        elif key == self.settings.get_key_code("color_picker"): self.toolbar.select_color() if self.toolbar else None
+        elif check_hotkey("board_mode"): self.toolbar.toggle_board() if self.toolbar else None
+        elif check_hotkey("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
+        elif check_hotkey("undo"): self.undo()
+        elif check_hotkey("quit"): QApplication.quit()
+        elif check_hotkey("screenshot"): self.take_screenshot()
+        elif check_hotkey("clear"): self.clear_all()
+        elif check_hotkey("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
+        elif check_hotkey("color_picker"): self.toolbar.select_color() if self.toolbar else None
 
     # Screenshot
     def take_screenshot(self):
@@ -111,14 +151,14 @@ class DrawingOverlay(QMainWindow):
         if self.toolbar: self.toolbar.show()
         self.force_focus()
 
-    # Mouse Events - KİLİT YOK
+    # Mouse Events
     def mousePressEvent(self, event):
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton: self.select_start = event.pos(); self.select_end = event.pos(); self.update()
             return 
 
+        # UI Üzerindeyse Çizme VE return diyerek olayı UI'a bırak
         if self.is_mouse_on_ui(event.pos()): 
-            event.ignore() # Tıklamayı alttaki pencereye geçir
             return 
 
         child = self.childAt(event.pos())
@@ -131,7 +171,13 @@ class DrawingOverlay(QMainWindow):
 
     def mouseMoveEvent(self, event):
         if self.is_selecting_region: self.select_end = event.pos(); self.update(); return 
-        if not self.drawing: return
+        
+        # Eğer çizim başladıysa ama mouse aniden UI üzerine geldiyse çizimi durdurma,
+        # ancak yeni çizim başlamasını mousePressEvent engelliyor.
+        if not self.drawing: 
+            # Hover durumunda da UI kontrolü yapalım ki cursor değişsin veya focus kaysın
+            self.is_mouse_on_ui(event.pos())
+            return
         
         if self.drawing_mode in ["pen", "eraser"]:
             painter = QPainter(self.canvas); painter.setRenderHint(QPainter.Antialiasing)

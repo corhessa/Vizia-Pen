@@ -8,7 +8,6 @@ import os
 import sys
 import datetime
 
-# Motoru yükle
 try:
     from core.recorder.camera_widget import ResizableCameraWidget
     from core.recorder.engine_wrapper import CppEngineWrapper
@@ -17,12 +16,10 @@ except ImportError:
     from core.recorder.camera_widget import ResizableCameraWidget
     from core.recorder.engine_wrapper import CppEngineWrapper
 
-# --- MİNİ KONTROL PANELİ (Kayıt Sırasında Çıkan) ---
 class MiniControlPanel(QWidget):
     def __init__(self, parent_controller):
         super().__init__()
         self.controller = parent_controller
-        # Madde 1: Her zaman en üstte ve kalemden etkilenmemesi için Tool/StaysOnTop
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(260, 60)
@@ -39,17 +36,14 @@ class MiniControlPanel(QWidget):
         layout = QHBoxLayout(self.container)
         layout.setContentsMargins(20, 5, 20, 5)
         
-        # Kırmızı Nokta (Yanıp Sönen)
         self.dot = QLabel("●"); self.dot.setStyleSheet("color: red; font-size: 14px;")
         layout.addWidget(self.dot)
         
-        # Süre
         self.lbl_time = QLabel("00:00:00")
         layout.addWidget(self.lbl_time)
         
         layout.addStretch()
         
-        # Duraklat Butonu
         self.btn_pause = QPushButton("||")
         self.btn_pause.setFixedSize(32, 32)
         self.btn_pause.setCheckable(True)
@@ -62,7 +56,6 @@ class MiniControlPanel(QWidget):
         self.btn_pause.clicked.connect(self.toggle_pause)
         layout.addWidget(self.btn_pause)
         
-        # Bitir Butonu
         self.btn_stop = QPushButton("■")
         self.btn_stop.setFixedSize(32, 32)
         self.btn_stop.setCursor(Qt.PointingHandCursor)
@@ -73,7 +66,6 @@ class MiniControlPanel(QWidget):
         self.btn_stop.clicked.connect(self.stop_recording)
         layout.addWidget(self.btn_stop)
         
-        # Timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
         self.elapsed_seconds = 0
@@ -86,7 +78,6 @@ class MiniControlPanel(QWidget):
         self.raise_()
         self.activateWindow()
         
-        # Ekranın sağ altına koy
         geo = QApplication.primaryScreen().geometry()
         self.move(geo.width() - 290, geo.height() - 130)
 
@@ -114,11 +105,11 @@ class MiniControlPanel(QWidget):
         self.controller.stop_rec()
         self.close()
 
-    # Sürükleme Mantığı (Madde 1: Kalemden etkilenmeden sürükleme)
     def mousePressEvent(self, e): 
         if e.button() == Qt.LeftButton: 
             self.old_pos = e.globalPos()
-            self.raise_() # Tıklanınca en öne gel
+            self.raise_() # Overlay'in üzerine çık
+            self.activateWindow()
     def mouseMoveEvent(self, e): 
         if hasattr(self, 'old_pos'): 
             delta = e.globalPos() - self.old_pos
@@ -136,8 +127,7 @@ class RecorderController(QWidget):
         self.camera_widget = ResizableCameraWidget()
         self.engine = CppEngineWrapper()
         
-        # Madde 2: Kamera görüntüsünü widget'a bağla (Canlı Önizleme)
-        self.engine.frame_captured.connect(self.camera_widget.update_frame)
+        self.engine.preview_signal.connect(self.camera_widget.update_frame)
         
         self.mini_panel = MiniControlPanel(self)
         
@@ -151,19 +141,13 @@ class RecorderController(QWidget):
         self.container = QFrame(self)
         self.container.setGeometry(15, 15, 420, 530)
         
-        # Madde 4: Modern QComboBox Tasarımı
         self.container.setStyleSheet("""
             QFrame#Main { background: #121212; border: 1px solid #2a2a2a; border-radius: 24px; }
             QLabel { color: #f0f0f0; font-family: 'Segoe UI'; font-size: 14px; }
             QLabel#H { color: #888; font-size: 11px; font-weight: bold; letter-spacing: 1px; margin-top: 15px; }
             
             QComboBox { 
-                background-color: #1e1e20; 
-                border: 1px solid #333; 
-                border-radius: 12px; 
-                padding: 10px; 
-                color: white; 
-                font-size: 13px;
+                background-color: #1e1e20; border: 1px solid #333; border-radius: 12px; padding: 10px; color: white; font-size: 13px;
             }
             QComboBox:hover { border-color: #555; }
             QComboBox::drop-down { border: none; width: 30px; }
@@ -171,13 +155,7 @@ class RecorderController(QWidget):
                 image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #888; margin-right: 10px; 
             }
             QComboBox QAbstractItemView {
-                background-color: #1e1e20;
-                color: white;
-                selection-background-color: #007aff;
-                selection-color: white;
-                border: 1px solid #333;
-                border-radius: 5px;
-                outline: none;
+                background-color: #1e1e20; color: white; selection-background-color: #007aff; selection-color: white; border: 1px solid #333; outline: none;
             }
             
             QPushButton#Path { background: #1e1e20; border: 1px solid #333; border-radius: 12px; }
@@ -191,7 +169,6 @@ class RecorderController(QWidget):
         
         l = QVBoxLayout(self.container); l.setContentsMargins(30, 30, 30, 30); l.setSpacing(8)
         
-        # Başlık
         h = QHBoxLayout()
         ttl = QLabel("Kayıt Stüdyosu"); ttl.setStyleSheet("font-size: 24px; font-weight: 800; color: white;")
         cls = QPushButton("✕"); cls.setFixedSize(30,30); cls.clicked.connect(self.close_panel)
@@ -199,9 +176,8 @@ class RecorderController(QWidget):
         h.addWidget(ttl); h.addStretch(); h.addWidget(cls)
         l.addLayout(h); l.addSpacing(10)
         
-        # Ayarlar
         l.addWidget(QLabel("SES KAYNAĞI", objectName="H"))
-        self.c_mic = QComboBox(); self.c_mic.setView(QListView()) # CSS için gerekli
+        self.c_mic = QComboBox(); self.c_mic.setView(QListView())
         self.c_mic.addItems(["Sadece Sistem Sesi", "Sistem Sesi + Mikrofon", "Sessiz"])
         l.addWidget(self.c_mic)
         
@@ -220,7 +196,6 @@ class RecorderController(QWidget):
         
         l.addStretch()
         
-        # Başlat
         self.btn_rec = QPushButton("KAYDI BAŞLAT")
         self.btn_rec.setFixedHeight(60)
         self.btn_rec.setCursor(Qt.PointingHandCursor)
@@ -235,8 +210,8 @@ class RecorderController(QWidget):
         self.btn_rec.clicked.connect(self.toggle_rec)
         l.addWidget(self.btn_rec)
         
-        self.mode_lbl = QLabel(f"Motor: {self.engine.mode}")
-        self.mode_lbl.setAlignment(Qt.AlignCenter); self.mode_lbl.setStyleSheet("color: #444; font-size: 10px; margin-top:5px;")
+        self.mode_lbl = QLabel("Vizia Pen v1.0    Modern Drawing Assistant")
+        self.mode_lbl.setAlignment(Qt.AlignCenter); self.mode_lbl.setStyleSheet("color: #444; font-size: 10px; margin-top:5px; font-weight: bold;")
         l.addWidget(self.mode_lbl)
 
     def upd_path(self):
@@ -260,26 +235,27 @@ class RecorderController(QWidget):
         self.engine.update_camera_config(active, self.camera_widget.geometry())
 
     def toggle_rec(self):
-        if not self.is_recording:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            base_dir = self.settings.get("video_save_path") or os.path.join(os.path.expanduser("~"), "Videos")
-            if not os.path.exists(base_dir): os.makedirs(base_dir)
-            
-            fn = os.path.join(base_dir, f"Vizia_{timestamp}.avi")
-            
-            self.engine.update_camera_config(self.c_cam.currentIndex()==1, self.camera_widget.geometry())
-            
-            self.is_recording = True
-            self.hide() 
-            self.mini_panel.start_timer()
-            
-            if self.overlay: self.overlay.show_toast("🔴 Kayıt Başladı")
-            self.engine.start(fn, 20) 
-            
-            self.btn_rec.setText("KAYDI DURDUR")
-            self.btn_rec.setStyleSheet("background: #333; color: white; border-radius: 30px; font-weight: bold;")
-        else:
-            self.stop_rec()
+        if self.is_recording:
+            if self.overlay: self.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor!")
+            return
+
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        base_dir = self.settings.get("video_save_path") or os.path.join(os.path.expanduser("~"), "Videos")
+        if not os.path.exists(base_dir): os.makedirs(base_dir)
+        
+        fn = os.path.join(base_dir, f"Vizia_{timestamp}.mp4")
+        
+        self.engine.update_camera_config(self.c_cam.currentIndex()==1, self.camera_widget.geometry())
+        
+        self.is_recording = True
+        self.hide() 
+        self.mini_panel.start_timer()
+        
+        if self.overlay: self.overlay.show_toast("🔴 Kayıt Başladı")
+        self.engine.start(fn, 24) 
+        
+        self.btn_rec.setText("KAYDI DURDUR")
+        self.btn_rec.setStyleSheet("background: #333; color: white; border-radius: 30px; font-weight: bold;")
 
     def stop_rec(self):
         self.is_recording = False
@@ -293,13 +269,17 @@ class RecorderController(QWidget):
     def close_panel(self):
         self.hide()
         if not self.is_recording:
+            self.engine.stop_camera_preview()
             self.camera_widget.close()
+            self.c_cam.blockSignals(True)
+            self.c_cam.setCurrentIndex(0)
+            self.c_cam.blockSignals(False)
 
     def showEvent(self, e):
-        self.mode_lbl.setText(f"Engine: {self.engine.mode}")
         self.raise_(); self.activateWindow()
 
     def mousePressEvent(self, e): 
         if e.button()==Qt.LeftButton: self.old=e.globalPos()
+        self.raise_(); self.activateWindow()
     def mouseMoveEvent(self, e): 
         if hasattr(self,'old'): self.move(self.pos()+e.globalPos()-self.old); self.old=e.globalPos()
