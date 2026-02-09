@@ -1,73 +1,108 @@
-# Vizia/core/recorder/engine_wrapper.py
-
-import ctypes
+import threading
+import time
 import os
 import sys
+import ctypes
+import numpy as np
+import cv2
+
+# Windows DPI Ayarı (Ölçekleme sorununu çözen sihirli kod)
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2) # PER_MONITOR_DPI_AWARE
+except Exception:
+    ctypes.windll.user32.SetProcessDPIAware()
 
 class CppEngineWrapper:
     def __init__(self):
-        self.lib = None
-        self.load_library()
-        
-    def load_library(self):
+        self.is_recording = False
+        self.stop_event = threading.Event()
+        self.dll = None
+        self.cap_obj = None
+        self.mode = "PYTHON"
+        self._load_cpp_engine()
+
+    def _load_cpp_engine(self):
         try:
-            # İşletim sistemine göre DLL yolunu bul
-            # Bu dosya (engine_wrapper.py) -> core/recorder içinde
-            # DLL dosyası -> core/cpp_engine/build içinde olacak
-            current_dir = os.path.dirname(os.path.abspath(__file__))
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            cpp_dir = os.path.join(base_path, "..", "..", "core", "cpp_engine")
+            build_dir = os.path.join(cpp_dir, "build")
+            dll_path = os.path.join(build_dir, "recorder.dll")
             
-            # Yolu: Vizia/core/recorder/../../core/cpp_engine/build/recorder.dll
-            dll_path = os.path.join(current_dir, "..", "cpp_engine", "build", "recorder.dll")
-            dll_path = os.path.normpath(dll_path)
-            
-            if not os.path.exists(dll_path):
-                print(f"[UYARI] C++ DLL bulunamadı: {dll_path}")
-                print("Simülasyon modunda çalışılacak. (Gerçek kayıt yapılmayacak)")
-                return
-
-            # DLL'i yükle
-            self.lib = ctypes.CDLL(dll_path)
-            
-            # --- C++ Fonksiyonlarını Python'a Tanıt ---
-            
-            # Fonksiyon: void start_capture(const char* path, int fps)
-            self.lib.start_capture.argtypes = [ctypes.c_char_p, ctypes.c_int]
-            self.lib.start_capture.restype = None
-            
-            # Fonksiyon: void stop_capture()
-            self.lib.stop_capture.argtypes = []
-            self.lib.stop_capture.restype = None
-            
-            # Fonksiyon: void pause_capture(bool pause)
-            self.lib.pause_capture.argtypes = [ctypes.c_bool]
-            self.lib.pause_capture.restype = None
-            
-            print("Vizia C++ Engine Başarıyla Yüklendi.")
-            
+            if dll_path and os.path.exists(dll_path):
+                self.dll = ctypes.CDLL(dll_path)
+                
+                # init_engine artık w, h alıyor!
+                self.dll.init_engine.argtypes = [ctypes.c_int, ctypes.c_int]
+                self.dll.init_engine.restype = ctypes.c_void_p
+                
+                self.dll.grab_frame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ubyte)]
+                self.dll.grab_frame.restype = ctypes.c_bool
+                self.dll.release_engine.argtypes = [ctypes.c_void_p]
+                
+                print("[Vizia Engine] C++ Modu Hazır")
+                self.mode = "CPP"
+            else:
+                self.mode = "PYTHON"
         except Exception as e:
-            print(f"DLL Yükleme Hatası: {e}")
-            self.lib = None
+            print(f"[Vizia Engine] Hata: {e}")
+            self.mode = "PYTHON"
 
-    def start(self, save_path, fps=60):
-        """Kaydı başlatır."""
-        if self.lib:
-            # Python string'i C string'e (byte array) çevirmemiz lazım
-            b_path = save_path.encode('utf-8')
-            self.lib.start_capture(b_path, fps)
-        else:
-            print(f"[Simülasyon] Kayıt Başladı: {save_path} (FPS: {fps})")
+    def _record_loop(self, filename, fps):
+        # 1. Gerçek fiziksel çözünürlüğü al
+        user32 = ctypes.windll.user32
+        width = user32.GetSystemMetrics(0)
+        height = user32.GetSystemMetrics(1)
+        
+        print(f"[REC] Algılanan Çözünürlük: {width}x{height}")
+
+        filename = filename.replace(".mp4", ".avi")
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out = cv2.VideoWriter(filename, fourcc, fps, (width, height))
+        
+        # 4 Kanal (BGRA) Buffer
+        frame_size = width * height * 4
+        c_buffer = (ctypes.c_ubyte * frame_size)()
+        c_pointer = ctypes.cast(c_buffer, ctypes.POINTER(ctypes.c_ubyte))
+        
+        # 2. C++ Motorunu bu çözünürlükle başlat (Senkronizasyon)
+        if self.mode == "CPP":
+            self.cap_obj = self.dll.init_engine(width, height)
+        
+        frame_interval = 1.0 / fps
+        
+        while not self.stop_event.is_set():
+            start_time = time.time()
+            try:
+                if self.mode == "CPP" and self.cap_obj:
+                    if self.dll.grab_frame(self.cap_obj, c_pointer):
+                        # Veriyi al
+                        frame = np.ctypeslib.as_array(c_buffer).reshape(height, width, 4)
+                        # BGRA -> BGR Dönüşümü
+                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                        out.write(frame_bgr)
+            except Exception:
+                pass
+            
+            elapsed = time.time() - start_time
+            time.sleep(max(0, frame_interval - elapsed))
+            
+        out.release()
+        if self.mode == "CPP" and self.cap_obj:
+            self.dll.release_engine(self.cap_obj)
+        print("[REC] Kayıt Bitti.")
+
+    def start(self, save_path, fps=30):
+        if self.is_recording: return
+        self.is_recording = True
+        self.stop_event.clear()
+        
+        folder = os.path.dirname(save_path)
+        if not os.path.exists(folder): os.makedirs(folder)
+
+        self.thread = threading.Thread(target=self._record_loop, args=(save_path, fps))
+        self.thread.daemon = True
+        self.thread.start()
 
     def stop(self):
-        """Kaydı bitirir."""
-        if self.lib:
-            self.lib.stop_capture()
-        else:
-            print("[Simülasyon] Kayıt Durduruldu.")
-
-    def pause(self, is_paused):
-        """Kaydı duraklatır veya devam ettirir."""
-        if self.lib:
-            self.lib.pause_capture(is_paused)
-        else:
-            status = "DURAKLATILDI" if is_paused else "DEVAM EDİYOR"
-            print(f"[Simülasyon] Kayıt Durumu: {status}")
+        self.is_recording = False
+        self.stop_event.set()

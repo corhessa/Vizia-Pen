@@ -1,70 +1,58 @@
-// Vizia/core/cpp_engine/recorder.cpp
-
-#include "recorder.h"
+#include <windows.h>
 #include <iostream>
-#include <string>
-#include <thread>
-#include <atomic>
-#include <chrono>
 
-// Global değişkenler (Basit durum yönetimi için)
-std::atomic<bool> g_is_recording(false);
-std::atomic<bool> g_is_paused(false);
-std::thread g_recording_thread;
-
-// Kayıt döngüsü (Simülasyon)
-void recording_loop(std::string output_path, int fps) {
-    std::cout << "[Vizia Engine] Kayit Basladi: " << output_path << " @ " << fps << " FPS" << std::endl;
-    
-    // FFmpeg entegrasyonu buraya gelecek.
-    // Örnek: avformat_alloc_output_context2(...)
-    
-    int frame_count = 0;
-    while (g_is_recording) {
-        if (!g_is_paused) {
-            // Burada ekran görüntüsü alınıp encode edilecek.
-            // ScreenCapture -> Encode -> WriteFrame
-            
-            // Simülasyon gecikmesi (60 FPS)
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / fps));
-            frame_count++;
-            
-            if (frame_count % 60 == 0) {
-                std::cout << "[Vizia Engine] " << frame_count / fps << ". saniye kaydedildi..." << std::endl;
-            }
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-    }
-    
-    std::cout << "[Vizia Engine] Dosya kapatiliyor..." << std::endl;
-    // FFmpeg kaynaklarını serbest bırakma (av_write_trailer, avio_close)
-}
+struct CapContext {
+    HDC hScreen;
+    HDC hDC;
+    HBITMAP hBmp;
+    void* pBits;
+    int width;
+    int height;
+};
 
 extern "C" {
-    // Python'dan çağrılan fonksiyonlar
+    __declspec(dllexport) CapContext* init_engine(int w, int h) {
+        CapContext* ctx = new CapContext();
+        ctx->width = w;
+        ctx->height = h;
 
-    void start_capture(const char* output_path, int fps) {
-        if (g_is_recording) return;
-        
-        g_is_recording = true;
-        g_is_paused = false;
-        
-        std::string path(output_path);
-        g_recording_thread = std::thread(recording_loop, path, fps);
-        g_recording_thread.detach(); // Arka planda çalışsın
+        // Ekran DC'sini al
+        ctx->hScreen = GetDC(NULL); 
+        ctx->hDC = CreateCompatibleDC(ctx->hScreen);
+
+        // RGB Bitmap oluştur (4 Kanal - BGRA)
+        BITMAPINFO bmi = {0};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = -h; // Eksi değer görüntüyü düz (top-down) yapar
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32; // Her piksel 4 byte (B, G, R, Alpha)
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        ctx->hBmp = CreateDIBSection(ctx->hDC, &bmi, DIB_RGB_COLORS, &ctx->pBits, NULL, 0);
+        SelectObject(ctx->hDC, ctx->hBmp);
+
+        return ctx;
     }
 
-    void stop_capture() {
-        if (!g_is_recording) return;
+    __declspec(dllexport) bool grab_frame(CapContext* ctx, unsigned char* buffer) {
+        if (!ctx) return false;
+
+        // BitBlt ile ekranı kopyala (SRCCOPY | CAPTUREBLT)
+        // CAPTUREBLT: Yarı saydam pencereleri de alır
+        BitBlt(ctx->hDC, 0, 0, ctx->width, ctx->height, ctx->hScreen, 0, 0, SRCCOPY | 0x40000000);
+
+        // Veriyi Python buffer'ına kopyala
+        memcpy(buffer, ctx->pBits, ctx->width * ctx->height * 4);
         
-        g_is_recording = false;
-        // Thread'in bitmesini beklemeye gerek yok, loop boolean flag ile duracak
+        return true;
     }
 
-    void pause_capture(bool pause) {
-        g_is_paused = pause;
-        if (pause) std::cout << "[Vizia Engine] Kayit DURAKLATILDI." << std::endl;
-        else std::cout << "[Vizia Engine] Kayit DEVAM EDIYOR." << std::endl;
+    __declspec(dllexport) void release_engine(CapContext* ctx) {
+        if (!ctx) return;
+        ReleaseDC(NULL, ctx->hScreen);
+        DeleteDC(ctx->hDC);
+        DeleteObject(ctx->hBmp);
+        delete ctx;
     }
 }

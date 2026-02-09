@@ -33,8 +33,7 @@ class DrawingOverlay(QMainWindow):
         self.drawing = False
         self.toolbar = None
         
-        # [YENİ] Çizim Engelleme Kilidi (Kayıt penceresi açıldığında True olacak)
-        self.input_locked = False
+        # KİLİT YOK - KISITLAMA YOK
         
         self.is_selecting_region = False
         self.select_start = QPoint()
@@ -42,41 +41,30 @@ class DrawingOverlay(QMainWindow):
         
         self.setFocusPolicy(Qt.StrongFocus)
 
-    # [YENİ] Dışarıdan çizimi kilitlemek için fonksiyon
-    def set_input_locked(self, locked):
-        self.input_locked = locked
-        if locked:
-            self.setCursor(Qt.ForbiddenCursor)
-        else:
-            self.update_cursor()
-
-    # --- UI KONTROLÜ ---
+    # UI Kontrolü: Mouse UI üzerindeyse çizimi engelle ama tıklamayı engelleme
     def is_mouse_on_ui(self, pos):
         if self.toolbar:
             global_pos = self.mapToGlobal(pos)
             if self.toolbar.geometry().contains(global_pos): return True
             if hasattr(self.toolbar, 'drawer') and self.toolbar.drawer.isVisible():
                 if self.toolbar.drawer.geometry().contains(global_pos): return True
+                
+            # Recorder penceresi üzerindeyse çizimi engelle
+            if hasattr(self.toolbar.drawer, 'recorder_window') and \
+               self.toolbar.drawer.recorder_window and \
+               self.toolbar.drawer.recorder_window.isVisible():
+                if self.toolbar.drawer.recorder_window.geometry().contains(global_pos):
+                    return True
         return False
 
     def force_focus(self):
-        if self.input_locked: return # Kilitliyse odaklanma
-        self.activateWindow()
-        self.setFocus()
-        self.update_cursor()
-        if self.toolbar:
-            self.toolbar.raise_()
+        if self.drawing_mode != "move":
+            self.activateWindow()
+            self.setFocus()
 
-    def update_cursor(self):
-        if self.input_locked:
-            self.setCursor(Qt.ForbiddenCursor)
-        else:
-            self.setCursor(Qt.ArrowCursor)
+    def update_cursor(self): pass
 
-    # --- KLAVYE ---
     def keyPressEvent(self, event):
-        if self.input_locked: return # Kilitliyse klavye çalışma
-
         if self.is_selecting_region and event.key() == Qt.Key_Escape:
             self.cancel_screenshot(); return
             
@@ -91,14 +79,14 @@ class DrawingOverlay(QMainWindow):
         elif key == self.settings.get_key_code("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
         elif key == self.settings.get_key_code("color_picker"): self.toolbar.select_color() if self.toolbar else None
 
-    # --- SCREENSHOT ---
+    # Screenshot
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
         self.drawing = False
         self.is_selecting_region = True
         self.select_start = QPoint(); self.select_end = QPoint()
         self.setCursor(Qt.CrossCursor)
-        self.show_toast("Alanı seçmek için sürükleyin (Tam ekran için tıklayın)")
+        self.show_toast("Seçim Yapın")
         self.update()
 
     def cancel_screenshot(self):
@@ -118,21 +106,21 @@ class DrawingOverlay(QMainWindow):
         try:
             save_path = self.settings.get("save_path")
             success = ScreenshotManager.save_screenshot(crop_rect, save_path)
-            if success: self.show_toast(f"Kaydedildi!")
-            else: self.show_toast("Hata: Kaydedilemedi!")
-        except: self.show_toast("Kritik Hata: Kayıt Başarısız")
+            self.show_toast("Kaydedildi!" if success else "Hata!")
+        except: self.show_toast("Hata")
         if self.toolbar: self.toolbar.show()
         self.force_focus()
 
-    # --- MOUSE EVENTS ---
+    # Mouse Events - KİLİT YOK
     def mousePressEvent(self, event):
-        if self.input_locked: return # [KİLİT KONTROLÜ]
-
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton: self.select_start = event.pos(); self.select_end = event.pos(); self.update()
             return 
 
-        if self.is_mouse_on_ui(event.pos()): return 
+        if self.is_mouse_on_ui(event.pos()): 
+            event.ignore() # Tıklamayı alttaki pencereye geçir
+            return 
+
         child = self.childAt(event.pos())
         if child: return 
 
@@ -142,8 +130,6 @@ class DrawingOverlay(QMainWindow):
             self.current_stroke_path = QPainterPath(); self.current_stroke_path.moveTo(self.start_point)
 
     def mouseMoveEvent(self, event):
-        if self.input_locked: return # [KİLİT KONTROLÜ]
-
         if self.is_selecting_region: self.select_end = event.pos(); self.update(); return 
         if not self.drawing: return
         
@@ -159,12 +145,10 @@ class DrawingOverlay(QMainWindow):
         self.update()
 
     def mouseReleaseEvent(self, event):
-        if self.input_locked: return # [KİLİT KONTROLÜ]
-
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton:
                 self.select_end = event.pos(); selection_rect = QRect(self.select_start, self.select_end).normalized()
-                if selection_rect.width() < 5 or selection_rect.height() < 5: self._finalize_screenshot(None) 
+                if selection_rect.width() < 5: self._finalize_screenshot(None) 
                 else: self._finalize_screenshot(selection_rect)
             return 
         if not self.drawing: return
@@ -178,16 +162,15 @@ class DrawingOverlay(QMainWindow):
             hist.append({'type': 'shape', 'shape': self.drawing_mode, 'start': self.start_point, 'end': event.pos(), 'color': QColor(self.current_color), 'width': self.brush_size}); self.redraw_canvas()
         self.drawing = False; self.update()
 
-    # --- DİĞERLERİ ---
+    # Yardımcı Fonksiyonlar (Aynı)
     def open_image_loader(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Görsel Seç", "", "Resimler (*.png *.jpg *.jpeg *.bmp)")
+        path, _ = QFileDialog.getOpenFileName(self, "Görsel", "", "Resim (*.png *.jpg)")
         if path:
             img = ViziaImageItem(path, self.whiteboard_mode, self)
             img.request_close.connect(self.remove_from_history)
             img.request_stamp.connect(lambda: self.stamp_image(img))
             self.image_widgets.append(img)
-            hist = self.board_history if self.whiteboard_mode else self.desktop_history
-            hist.append({'type': 'image', 'obj': img})
+            (self.board_history if self.whiteboard_mode else self.desktop_history).append({'type': 'image', 'obj': img})
         self.force_focus()
 
     def remove_from_history(self, widget):
@@ -199,88 +182,64 @@ class DrawingOverlay(QMainWindow):
     def stamp_image(self, widget):
         if not widget or not widget.isVisible(): return
         try:
-            img_global_pos = widget.image_container.mapToGlobal(QPoint(0, 0))
-            target_pos = self.mapFromGlobal(img_global_pos)
-            painter = QPainter(self.canvas)
-            painter.setRenderHint(QPainter.SmoothPixmapTransform); painter.setRenderHint(QPainter.Antialiasing)
-            scaled_pixmap = widget.image_container.pixmap().scaled(widget.image_container.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
-            painter.drawPixmap(target_pos, scaled_pixmap)
-            painter.end()
-            self.update()
-            widget.close()
-            self.show_toast("Görsel Sabitlendi ✓")
-            self.force_focus()
+            pos = self.mapFromGlobal(widget.image_container.mapToGlobal(QPoint(0,0)))
+            p = QPainter(self.canvas); p.setRenderHint(QPainter.SmoothPixmapTransform)
+            p.drawPixmap(pos, widget.image_container.pixmap().scaled(widget.image_container.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+            p.end(); self.update(); widget.close(); self.force_focus()
         except: pass
 
     def undo(self):
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
-        if not hist: return
-        try:
+        if hist:
             last = hist.pop()
             if last.get('type') in ['text', 'image']:
-                try: 
-                    if last.get('obj'): last['obj'].close()
-                except: pass
-                if last.get('obj') in self.image_widgets:
-                    self.image_widgets.remove(last['obj'])
+                if last.get('obj'): last['obj'].close()
+                if last.get('obj') in self.image_widgets: self.image_widgets.remove(last['obj'])
             self.redraw_canvas()
-        except Exception as e: print(f"Undo Error: {e}")
 
     def clear_all(self):
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
-        for item in hist[:]:
-            if item.get('type') in ['text', 'image']:
-                try:
-                    obj = item.get('obj')
-                    if obj:
-                        obj.close()
-                        if obj in self.image_widgets: self.image_widgets.remove(obj)
-                except: pass
-        hist.clear(); self.canvas.fill(Qt.transparent); self.update(); self.redraw_canvas()
+        for item in hist:
+            if item.get('obj'): item['obj'].close()
+        hist.clear(); self.image_widgets.clear(); self.canvas.fill(Qt.transparent); self.update(); self.redraw_canvas()
 
     def redraw_canvas(self):
         self.canvas.fill(Qt.transparent)
-        painter = QPainter(self.canvas)
-        painter.setRenderHint(QPainter.Antialiasing)
+        p = QPainter(self.canvas); p.setRenderHint(QPainter.Antialiasing)
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
         for item in hist:
             if item.get('type') == 'path':
-                if item.get('mode') == 'eraser' and not self.whiteboard_mode: painter.setCompositionMode(QPainter.CompositionMode_Clear)
-                else: painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-                painter.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                painter.drawPath(item['path'])
+                p.setCompositionMode(QPainter.CompositionMode_Clear if item.get('mode')=='eraser' and not self.whiteboard_mode else QPainter.CompositionMode_SourceOver)
+                p.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)); p.drawPath(item['path'])
             elif item.get('type') == 'shape':
-                painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-                painter.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                if item['shape'] == 'line': painter.drawLine(item['start'], item['end'])
-                elif item['shape'] == 'rect': painter.drawRect(QRect(item['start'], item['end']).normalized())
-                elif item['shape'] == 'ellipse': painter.drawEllipse(QRect(item['start'], item['end']).normalized())
-        painter.end()
-        self.update()
+                p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+                p.setPen(QPen(item['color'], item['width'])); 
+                if item['shape']=='line': p.drawLine(item['start'], item['end'])
+                elif item['shape']=='rect': p.drawRect(QRect(item['start'], item['end']).normalized())
+                elif item['shape']=='ellipse': p.drawEllipse(QRect(item['start'], item['end']).normalized())
+        p.end(); self.update()
 
     def show_toast(self, m): self.toast = ModernNotification(m, self); self.toast.show_animated()
     def remove_text_item(self, t):
         h = self.board_history if self.whiteboard_mode else self.desktop_history
         for i, item in enumerate(h): 
             if item.get('obj') == t: h.pop(i); break
-        t.deleteLater(); self.update()
+        t.deleteLater()
     def add_text(self):
-        txt = ViziaTextItem(self, self.whiteboard_mode, self.current_color)
-        txt.move(100, 100); txt.delete_requested.connect(self.remove_text_item)
+        txt = ViziaTextItem(self, self.whiteboard_mode, self.current_color); txt.move(100,100)
+        txt.delete_requested.connect(self.remove_text_item)
         (self.board_history if self.whiteboard_mode else self.desktop_history).append({'type': 'text', 'obj': txt})
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), Qt.white if self.whiteboard_mode else QColor(0,0,0,1))
-        painter.drawPixmap(0, 0, self.canvas)
+    def paintEvent(self, e):
+        p = QPainter(self); p.fillRect(self.rect(), Qt.white if self.whiteboard_mode else QColor(0,0,0,1))
+        p.drawPixmap(0, 0, self.canvas)
         if self.is_selecting_region:
-            painter.setBrush(QColor(0, 0, 0, 80)); painter.setPen(Qt.NoPen)
-            full_rect = self.rect(); selection_rect = QRect(self.select_start, self.select_end).normalized()
-            clip = QRegion(full_rect).subtracted(QRegion(selection_rect))
-            painter.setClipRegion(clip); painter.fillRect(full_rect, QColor(0, 0, 0, 80)); painter.setClipRegion(QRegion(full_rect)) 
-            painter.setPen(QPen(Qt.white, 2, Qt.DashLine)); painter.setBrush(Qt.NoBrush); painter.drawRect(selection_rect)
+            p.setBrush(QColor(0,0,0,80)); p.setPen(Qt.NoPen)
+            r = self.rect(); s = QRect(self.select_start, self.select_end).normalized()
+            p.setClipRegion(QRegion(r).subtracted(QRegion(s))); p.fillRect(r, QColor(0,0,0,80)); p.setClipRegion(QRegion(r))
+            p.setPen(QPen(Qt.white, 2, Qt.DashLine)); p.setBrush(Qt.NoBrush); p.drawRect(s)
         if self.drawing and self.drawing_mode in ["line", "rect", "ellipse"]:
-            painter.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            if self.drawing_mode == "line": painter.drawLine(self.start_point, self.last_point)
-            elif self.drawing_mode == "rect": painter.drawRect(QRect(self.start_point, self.last_point).normalized())
-            elif self.drawing_mode == "ellipse": painter.drawEllipse(QRect(self.start_point, self.last_point).normalized())
+            p.setPen(QPen(self.current_color, self.brush_size)); 
+            if self.drawing_mode=="line": p.drawLine(self.start_point, self.last_point)
+            elif self.drawing_mode=="rect": p.drawRect(QRect(self.start_point, self.last_point).normalized())
+            elif self.drawing_mode=="ellipse": p.drawEllipse(QRect(self.start_point, self.last_point).normalized())
