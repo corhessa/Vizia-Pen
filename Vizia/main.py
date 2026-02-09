@@ -37,7 +37,7 @@ if __name__ == "__main__":
     # 4. Araç çubuğunu göster
     toolbar.show()
 
-    # 5. Uygulama döngüsünü başlat ve çıkış kodunu yakala
+    # 5. Uygulama döngüsünü başlat ve çıkış kodunu yakalad
     exit_code = app.exec_()
     
     sys.exit(exit_code)
