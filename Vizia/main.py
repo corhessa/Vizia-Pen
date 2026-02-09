@@ -15,25 +15,29 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 if __name__ == "__main__":
-    # Yüksek DPI ekranlar için ölçeklendirme
+    # Yüksek DPI ekranlar için ölçeklendirme (Bulanıklığı önler)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     
     app = QApplication(sys.argv)
     
-    # Uygulama ikonunu assets klasöründen yükle
-    base_path = os.path.dirname(os.path.abspath(__file__))
+    # Uygulama ikonunu yükle
     icon_path = resource_path("Vizia/Assets/VIZIA.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     
-    # Uygulama bileşenlerini oluştur
+    # 1. Uygulama bileşenlerini oluştur
     overlay = DrawingOverlay()
     toolbar = ModernToolbar(overlay)
     
-    # Bileşenleri birbirine bağla
+    # 2. Bileşenleri birbirine bağla
     overlay.toolbar = toolbar
     
-    # Araç çubuğunu göster ve uygulamayı başlat
+    
+    # 4. Araç çubuğunu göster
     toolbar.show()
-    sys.exit(app.exec_())
+
+    # 5. Uygulama döngüsünü başlat ve çıkış kodunu yakala
+    exit_code = app.exec_()
+    
+    sys.exit(exit_code)

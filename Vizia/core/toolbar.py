@@ -1,4 +1,4 @@
-# core/toolbar.py
+# Vizia/core/toolbar.py
 
 import sys
 import os
@@ -51,8 +51,12 @@ class ExtensionDrawer(QWidget):
         self.btn_geometry = self.create_drawer_btn("geometry.png", "Geometri Araçları", self.action_geometry)
         self.layout.addWidget(self.btn_geometry)
 
-        # 3. YENİ EKLENEN: Vizia Engine Butonu
-        # İkon olarak şimdilik 'gear.png' kullandım, istersen 'engine.png' bulup assets'e atabilirsin.
+        # 3. [YENİ] Ekran Kaydedici Butonu
+        # İkon yoksa Vizia/Assets klasörüne 'dslr-camera.png' veya 'video.png' atman gerekebilir.
+        self.btn_record = self.create_drawer_btn("dslr-camera.png", "Ekran Kaydı (C++ Engine)", self.action_open_recorder)
+        self.layout.addWidget(self.btn_record)
+
+        # 4. Vizia Engine Butonu
         self.btn_engine = self.create_drawer_btn("gear.png", "Vizia Engine (3D Lab)", self.action_open_engine)
         self.layout.addWidget(self.btn_engine)
         
@@ -61,6 +65,8 @@ class ExtensionDrawer(QWidget):
         self.anim = QPropertyAnimation(self, b"size")
         self.anim.setEasingCurve(QEasingCurve.OutExpo)
         self.anim.setDuration(300)
+        
+        self.recorder_window = None
 
     def create_drawer_btn(self, icon_name, tooltip, func):
         btn = QPushButton()
@@ -68,7 +74,10 @@ class ExtensionDrawer(QWidget):
         if os.path.exists(icon_path):
             btn.setIcon(QIcon(icon_path)); btn.setIconSize(QSize(24, 24))
         else:
-            btn.setText(tooltip[0]); btn.setStyleSheet("color: white; font-weight: bold;")
+            # İkon bulunamazsa baş harfini koy
+            text = "R" if "Kaydı" in tooltip else tooltip[0]
+            btn.setText(text); btn.setStyleSheet("color: white; font-weight: bold;")
+            
         btn.setFixedSize(40, 40); btn.setToolTip(tooltip); btn.setFocusPolicy(Qt.NoFocus)
         btn.clicked.connect(lambda: self.handle_click_sequence(func))
         return btn
@@ -88,29 +97,52 @@ class ExtensionDrawer(QWidget):
         self.toolbar_ref.overlay.drawing_mode = next_mode
         self.toolbar_ref.overlay.show_toast(f"Mod: {next_mode.upper()}")
 
-    # --- YENİ EKLENEN: ENGINE BAŞLATMA ---
     def action_open_engine(self):
         try:
-            # Sadece tıklandığında import ediyoruz ki açılışta yavaşlamasın
             from core.web_galacean.web_widgets import ViziaEngineItem
-            
-            # Motor penceresini oluştur
             self.engine_window = ViziaEngineItem(self.toolbar_ref.overlay)
             self.engine_window.show()
             
-            # Ekranın ortasına veya uygun bir yere taşı
             screen_geo = QApplication.primaryScreen().geometry()
             x = (screen_geo.width() - self.engine_window.width()) // 2
             y = (screen_geo.height() - self.engine_window.height()) // 2
             self.engine_window.move(x, y)
-            
-            # Drawer'ı kapat ki motor görünsün
             self.toggle()
-            
         except Exception as e:
             print(f"Engine Başlatma Hatası: {e}")
             if hasattr(self.toolbar_ref.overlay, 'show_toast'):
                 self.toolbar_ref.overlay.show_toast("Motor Yüklenemedi! (PyQtWebEngine kurulu mu?)")
+
+    # [YENİ] Kaydediciyi Açan Fonksiyon
+    # core/toolbar.py içinde ExtensionDrawer sınıfındaki fonksiyonu güncelle:
+
+    def action_open_recorder(self):
+        try:
+            # Güvenli Import
+            try:
+                from core.recorder.recorder_ui import RecorderController
+            except ImportError:
+                from .recorder.recorder_ui import RecorderController
+            
+            if self.recorder_window is None or not self.recorder_window.isVisible():
+                # [ÖNEMLİ DEĞİŞİKLİK] self.toolbar_ref.overlay parametresini ekledim!
+                self.recorder_window = RecorderController(self.toolbar_ref.overlay.settings, self.toolbar_ref.overlay)
+                self.recorder_window.show()
+                
+                # Ekranın ortasına al
+                screen_geo = QApplication.primaryScreen().geometry()
+                x = (screen_geo.width() - self.recorder_window.width()) // 2
+                y = (screen_geo.height() - self.recorder_window.height()) // 2
+                self.recorder_window.move(x, y)
+            else:
+                self.recorder_window.raise_()
+                self.recorder_window.activateWindow()
+            
+            self.toggle() # Çekmeceyi kapat
+        except Exception as e:
+            print(f"Recorder Hatası: {e}")
+            import traceback; traceback.print_exc()
+            self.toolbar_ref.overlay.show_toast("Recorder Modülü Hatası!")
 
     def update_position(self):
         if not self.isVisible(): return
@@ -140,7 +172,7 @@ class ExtensionDrawer(QWidget):
             try: self.anim.finished.disconnect(self._on_close_finished)
             except: pass
 
-# --- ANA TOOLBAR ---
+# --- ANA TOOLBAR (Mevcut kodun aynısı, drawer bağlantısı için gerekli) ---
 class ModernToolbar(QWidget):
     def __init__(self, overlay):
         super().__init__(overlay)

@@ -5,7 +5,7 @@
         "board_mode": "Space",
         "drawer": "E",
         "undo": "Backspace",
-        "clear": "D",
+        "clear": "S",
         "screenshot": "S",
         "move_mode": "V",
         "color_picker": "C",
@@ -22,5 +22,6 @@
         "#2c2c2e",
         "#2c2c2e",
         "#2c2c2e"
-    ]
+    ],
+    "video_save_path": "C:/Users/mls4g/Downloads"
 }

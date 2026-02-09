@@ -1,4 +1,4 @@
-# core/overlay.py
+# Vizia/core/overlay.py
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog
 from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QPen, QRegion, QCursor
@@ -33,11 +33,22 @@ class DrawingOverlay(QMainWindow):
         self.drawing = False
         self.toolbar = None
         
+        # [YENİ] Çizim Engelleme Kilidi (Kayıt penceresi açıldığında True olacak)
+        self.input_locked = False
+        
         self.is_selecting_region = False
         self.select_start = QPoint()
         self.select_end = QPoint()
         
         self.setFocusPolicy(Qt.StrongFocus)
+
+    # [YENİ] Dışarıdan çizimi kilitlemek için fonksiyon
+    def set_input_locked(self, locked):
+        self.input_locked = locked
+        if locked:
+            self.setCursor(Qt.ForbiddenCursor)
+        else:
+            self.update_cursor()
 
     # --- UI KONTROLÜ ---
     def is_mouse_on_ui(self, pos):
@@ -49,28 +60,28 @@ class DrawingOverlay(QMainWindow):
         return False
 
     def force_focus(self):
+        if self.input_locked: return # Kilitliyse odaklanma
         self.activateWindow()
         self.setFocus()
         self.update_cursor()
         if self.toolbar:
             self.toolbar.raise_()
-            if hasattr(self.toolbar, 'drawer') and self.toolbar.drawer.isVisible():
-                self.toolbar.drawer.raise_()
 
     def update_cursor(self):
-        self.setCursor(Qt.ArrowCursor)
+        if self.input_locked:
+            self.setCursor(Qt.ForbiddenCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
 
-    # --- KLAVYE (BACKSPACE EKLENDİ) ---
+    # --- KLAVYE ---
     def keyPressEvent(self, event):
+        if self.input_locked: return # Kilitliyse klavye çalışma
+
         if self.is_selecting_region and event.key() == Qt.Key_Escape:
             self.cancel_screenshot(); return
             
         key = event.key()
-        
-        # Backspace tuşu ile Geri Al
-        if key == Qt.Key_Backspace:
-            self.undo()
-            
+        if key == Qt.Key_Backspace: self.undo()
         elif key == self.settings.get_key_code("board_mode"): self.toolbar.toggle_board() if self.toolbar else None
         elif key == self.settings.get_key_code("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
         elif key == self.settings.get_key_code("undo"): self.undo()
@@ -115,13 +126,13 @@ class DrawingOverlay(QMainWindow):
 
     # --- MOUSE EVENTS ---
     def mousePressEvent(self, event):
+        if self.input_locked: return # [KİLİT KONTROLÜ]
+
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton: self.select_start = event.pos(); self.select_end = event.pos(); self.update()
             return 
 
         if self.is_mouse_on_ui(event.pos()): return 
-
-        # Görsel taşıma koruması
         child = self.childAt(event.pos())
         if child: return 
 
@@ -131,6 +142,8 @@ class DrawingOverlay(QMainWindow):
             self.current_stroke_path = QPainterPath(); self.current_stroke_path.moveTo(self.start_point)
 
     def mouseMoveEvent(self, event):
+        if self.input_locked: return # [KİLİT KONTROLÜ]
+
         if self.is_selecting_region: self.select_end = event.pos(); self.update(); return 
         if not self.drawing: return
         
@@ -146,6 +159,8 @@ class DrawingOverlay(QMainWindow):
         self.update()
 
     def mouseReleaseEvent(self, event):
+        if self.input_locked: return # [KİLİT KONTROLÜ]
+
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton:
                 self.select_end = event.pos(); selection_rect = QRect(self.select_start, self.select_end).normalized()
@@ -197,7 +212,6 @@ class DrawingOverlay(QMainWindow):
             self.force_focus()
         except: pass
 
-    # --- KRİTİK GÜVENLİK GÜNCELLEMELERİ (ÇÖKMEYİ ENGELLER) ---
     def undo(self):
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
         if not hist: return
@@ -207,32 +221,22 @@ class DrawingOverlay(QMainWindow):
                 try: 
                     if last.get('obj'): last['obj'].close()
                 except: pass
-                # Listeden güvenli silme
                 if last.get('obj') in self.image_widgets:
                     self.image_widgets.remove(last['obj'])
             self.redraw_canvas()
-        except Exception as e:
-            print(f"Undo Error: {e}")
+        except Exception as e: print(f"Undo Error: {e}")
 
     def clear_all(self):
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
-        
-        # Widget'ları kapat (Görünür olanları)
-        # Listeyi kopyalayarak iterate et ki döngü bozulmasın
         for item in hist[:]:
             if item.get('type') in ['text', 'image']:
                 try:
                     obj = item.get('obj')
                     if obj:
                         obj.close()
-                        if obj in self.image_widgets:
-                            self.image_widgets.remove(obj)
+                        if obj in self.image_widgets: self.image_widgets.remove(obj)
                 except: pass
-        
-        hist.clear()
-        self.canvas.fill(Qt.transparent)
-        self.update()
-        self.redraw_canvas()
+        hist.clear(); self.canvas.fill(Qt.transparent); self.update(); self.redraw_canvas()
 
     def redraw_canvas(self):
         self.canvas.fill(Qt.transparent)

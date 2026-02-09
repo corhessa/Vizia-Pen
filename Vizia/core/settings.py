@@ -1,4 +1,4 @@
-# core/settings.py
+# Vizia/core/settings.py
 
 import json
 import os
@@ -12,7 +12,7 @@ SETTINGS_FILE = "vizia_settings.json"
 # --- VARSAYILAN AYARLAR ---
 DEFAULT_SETTINGS = {
     "save_path": os.path.join(os.path.expanduser("~"), "Pictures", "Vizia Screenshots"),
-    "keep_colors": True, # Varsayılan olarak renkleri korusun mu? (İsteğe bağlı)
+    "keep_colors": True,
     "hotkeys": {
         "board_mode": "Space",
         "drawer": "E",
@@ -85,10 +85,12 @@ class KeybindButton(QPushButton):
         self.parent_dialog.current_binding_btn = self
         self.parent_dialog.setFocus()
 
+# --- BURASI EKSİK OLABİLİR, MUTLAKA EKLE ---
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings_manager=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
+        # Ayarları kopyala (İptal edilirse geri dönmek için)
         self.temp_settings = json.loads(json.dumps(self.settings_manager.settings))
         self.current_binding_btn = None
         
@@ -207,19 +209,15 @@ class SettingsDialog(QDialog):
         else: super().keyPressEvent(event)
 
     def reset_to_defaults(self):
-        # Eğer "Renkleri Koru" seçiliyse, mevcut renkleri yedekle
         should_keep = self.chk_keep_colors.isChecked()
         backup_colors = self.temp_settings.get("custom_colors", []) if should_keep else None
         
-        # Tam sıfırlama
         self.temp_settings = json.loads(json.dumps(DEFAULT_SETTINGS))
         
-        # Yedeklenen renkleri geri yükle ve checkbox'ı eski haline getir
         if should_keep and backup_colors:
             self.temp_settings["custom_colors"] = backup_colors
-            self.temp_settings["keep_colors"] = True # Sıfırlanınca bu da true kalsın istiyorsan
+            self.temp_settings["keep_colors"] = True
         
-        # UI Güncelle
         self.path_input.setText(self.temp_settings["save_path"])
         self.chk_keep_colors.setChecked(self.temp_settings.get("keep_colors", True))
         for key, btn in self.btn_map.items(): btn.setText(self.temp_settings["hotkeys"].get(key, ""))
