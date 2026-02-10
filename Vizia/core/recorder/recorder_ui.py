@@ -29,6 +29,9 @@ class MiniControlPanel(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
+        # [GÜNCELLENDİ] Tooltip ayarı
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        
         self.setFixedSize(280, 80)
         
         self.container = QFrame(self)
@@ -80,12 +83,10 @@ class MiniControlPanel(QWidget):
         self.elapsed_seconds = 0
         self.blink_state = True
     
-    # [GÜNCELLENDİ] Backspace Tuşu Koruması
     def keyPressEvent(self, event):
         key = event.key()
         overlay = self.controller.overlay
         if overlay:
-            # Backspace sadece Tahtayı tetikler
             if key == Qt.Key_Backspace:
                 overlay.toolbar.toggle_board()
                 event.accept()
@@ -155,6 +156,9 @@ class RecorderController(QWidget):
         self.overlay = overlay_ref 
         self.is_recording = False
         
+        # [GÜNCELLENDİ] Tooltip ayarı
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        
         self.camera_widget = ResizableCameraWidget()
         self.camera_widget.geometry_changed.connect(self.update_cam_config_slot)
         
@@ -217,7 +221,6 @@ class RecorderController(QWidget):
         ph = QHBoxLayout()
         self.lbl_p = QLabel("..."); self.lbl_p.setStyleSheet("color: #888;")
         
-        # [GÜNCELLENDİ] Klasör butonu ikonu folder.png
         btn_p = QPushButton(); btn_p.setFixedSize(40,40); btn_p.setObjectName("Path")
         folder_icon_path = resource_path("Vizia/Assets/folder.png")
         if os.path.exists(folder_icon_path):
@@ -250,11 +253,9 @@ class RecorderController(QWidget):
         self.mode_lbl.setAlignment(Qt.AlignCenter); self.mode_lbl.setStyleSheet("color: #444; font-size: 10px; margin-top:5px; font-weight: bold;")
         l.addWidget(self.mode_lbl)
 
-    # [GÜNCELLENDİ] Backspace Tuşu Koruması
     def keyPressEvent(self, event):
         key = event.key()
         if self.overlay:
-            # Backspace sadece Tahtayı tetikler
             if key == Qt.Key_Backspace:
                 self.overlay.toolbar.toggle_board()
                 event.accept()
@@ -294,7 +295,6 @@ class RecorderController(QWidget):
             rect = self.camera_widget.geometry()
         self.engine.update_camera_config(self.c_cam.currentIndex() == 1, rect)
 
-    # [GÜNCELLENDİ] Aynı anda tek kayıt kontrolü
     def toggle_rec(self):
         if self.is_recording:
             if self.overlay: 

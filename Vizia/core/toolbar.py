@@ -27,6 +27,9 @@ class ExtensionDrawer(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
+        # [GÜNCELLENDİ] 2) Pencere aktif olmasa bile Tooltip göster
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        
         self.is_open = False
         self.target_width = 60
         self.resize(0, 0)
@@ -48,11 +51,10 @@ class ExtensionDrawer(QWidget):
         self.btn_geometry = self.create_drawer_btn("geometry.png", "Geometri Araçları", self.action_geometry)
         self.layout.addWidget(self.btn_geometry)
 
-        # [GÜNCELLENDİ] İkon: record.png
-        self.btn_record = self.create_drawer_btn("record.png", "Ekran Kaydı (C++ Engine)", self.action_open_recorder)
+        # [GÜNCELLENDİ] 3) Yazı temizlendi: "Ekran Kaydı"
+        self.btn_record = self.create_drawer_btn("record.png", "Ekran Kaydı", self.action_open_recorder)
         self.layout.addWidget(self.btn_record)
 
-        # [GÜNCELLENDİ] İkon: game.png
         self.btn_engine = self.create_drawer_btn("game.png", "Vizia Engine (3D Lab)", self.action_open_engine)
         self.layout.addWidget(self.btn_engine)
         
@@ -64,18 +66,15 @@ class ExtensionDrawer(QWidget):
         
         self.recorder_window = None
 
-    # [GÜNCELLENDİ] Backspace Tuşu Koruması
     def keyPressEvent(self, event):
         key = event.key()
         overlay = self.toolbar_ref.overlay
         if overlay:
-            # Backspace sadece Tahtayı tetikler
             if key == Qt.Key_Backspace:
                 overlay.toolbar.toggle_board()
                 event.accept()
                 return
 
-            # Space (veya ayarlı diğer tuş) koruması
             hotkey_str = overlay.settings.get("hotkeys").get("board_mode") 
             if hotkey_str:
                 seq = QKeySequence(key)
@@ -130,25 +129,48 @@ class ExtensionDrawer(QWidget):
             if hasattr(self.toolbar_ref.overlay, 'show_toast'):
                 self.toolbar_ref.overlay.show_toast("Motor Yüklenemedi! (PyQtWebEngine kurulu mu?)")
 
+    # [GÜNCELLENDİ] 1) Tekil Kayıt Kontrolü
     def action_open_recorder(self):
         try:
+            # Modül import
             try:
                 from core.recorder.recorder_ui import RecorderController
             except ImportError:
                 from .recorder.recorder_ui import RecorderController
             
-            if self.recorder_window is None or not self.recorder_window.isVisible():
+            # Eğer pencere zaten varsa durumunu kontrol et
+            if self.recorder_window is not None:
+                # Durum 1: Kayıt sürüyor
+                if self.recorder_window.is_recording:
+                    self.toolbar_ref.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor!")
+                    # Mini paneli bul ve öne getir
+                    if hasattr(self.recorder_window, 'mini_panel'):
+                        self.recorder_window.mini_panel.show()
+                        self.recorder_window.mini_panel.raise_()
+                    return # Yeni pencere açma!
+
+                # Durum 2: Kayıt yok ama pencere gizli (kapatılmış) veya arkada
+                if not self.recorder_window.isVisible():
+                    self.recorder_window.show()
+                    # Ortala
+                    screen_geo = QApplication.primaryScreen().geometry()
+                    x = (screen_geo.width() - self.recorder_window.width()) // 2
+                    y = (screen_geo.height() - self.recorder_window.height()) // 2
+                    self.recorder_window.move(x, y)
+                else:
+                    self.recorder_window.raise_()
+                    self.recorder_window.activateWindow()
+            
+            else:
+                # Hiç pencere yoksa oluştur
                 self.recorder_window = RecorderController(self.toolbar_ref.overlay.settings, self.toolbar_ref.overlay)
                 self.recorder_window.show()
                 screen_geo = QApplication.primaryScreen().geometry()
                 x = (screen_geo.width() - self.recorder_window.width()) // 2
                 y = (screen_geo.height() - self.recorder_window.height()) // 2
                 self.recorder_window.move(x, y)
-            else:
-                self.recorder_window.raise_()
-                self.recorder_window.activateWindow()
             
-            self.toggle()
+            self.toggle() # Çekmeceyi kapat
         except Exception as e:
             print(f"Recorder Hatası: {e}")
             import traceback; traceback.print_exc()
@@ -190,6 +212,10 @@ class ModernToolbar(QWidget):
         self.custom_colors = self.overlay.settings.get("custom_colors")
         self.custom_color_index = 0
         self.last_active_tool = "pen"
+        
+        # [GÜNCELLENDİ] 2) Tooltip ayarı
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        
         self.drawer = ExtensionDrawer(self)
         self.initUI()
 
