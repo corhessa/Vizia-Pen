@@ -24,7 +24,6 @@ class ExtensionDrawer(QWidget):
         super().__init__(None) # Bağımsız
         self.toolbar_ref = parent_toolbar
         
-        # Overlay'in üstünde kalması için gerekli
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
@@ -49,10 +48,12 @@ class ExtensionDrawer(QWidget):
         self.btn_geometry = self.create_drawer_btn("geometry.png", "Geometri Araçları", self.action_geometry)
         self.layout.addWidget(self.btn_geometry)
 
-        self.btn_record = self.create_drawer_btn("dslr-camera.png", "Ekran Kaydı (C++ Engine)", self.action_open_recorder)
+        # [GÜNCELLENDİ] İkon: record.png
+        self.btn_record = self.create_drawer_btn("record.png", "Ekran Kaydı (C++ Engine)", self.action_open_recorder)
         self.layout.addWidget(self.btn_record)
 
-        self.btn_engine = self.create_drawer_btn("gear.png", "Vizia Engine (3D Lab)", self.action_open_engine)
+        # [GÜNCELLENDİ] İkon: game.png
+        self.btn_engine = self.create_drawer_btn("game.png", "Vizia Engine (3D Lab)", self.action_open_engine)
         self.layout.addWidget(self.btn_engine)
         
         self.layout.addStretch()
@@ -63,12 +64,19 @@ class ExtensionDrawer(QWidget):
         
         self.recorder_window = None
 
-    # [KRİTİK GÜNCELLEME] Space Tuşu Koruması
+    # [GÜNCELLENDİ] Backspace Tuşu Koruması
     def keyPressEvent(self, event):
         key = event.key()
         overlay = self.toolbar_ref.overlay
         if overlay:
-            hotkey_str = overlay.settings.get("hotkeys").get("board_mode") # Genelde Space
+            # Backspace sadece Tahtayı tetikler
+            if key == Qt.Key_Backspace:
+                overlay.toolbar.toggle_board()
+                event.accept()
+                return
+
+            # Space (veya ayarlı diğer tuş) koruması
+            hotkey_str = overlay.settings.get("hotkeys").get("board_mode") 
             if hotkey_str:
                 seq = QKeySequence(key)
                 if seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch:
@@ -87,7 +95,6 @@ class ExtensionDrawer(QWidget):
             btn.setText(text); btn.setStyleSheet("color: white; font-weight: bold;")
             
         btn.setFixedSize(40, 40); btn.setToolTip(tooltip)
-        # Butonlar odaklanmasın (Focus Policy)
         btn.setFocusPolicy(Qt.NoFocus)
         btn.clicked.connect(lambda: self.handle_click_sequence(func))
         return btn

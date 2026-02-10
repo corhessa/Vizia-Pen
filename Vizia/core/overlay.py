@@ -128,13 +128,14 @@ class DrawingOverlay(QMainWindow):
         elif check_hotkey("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
         elif check_hotkey("color_picker"): self.toolbar.select_color() if self.toolbar else None
 
+    # [GÜNCELLENDİ] Bildirim Metni
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
         self.drawing = False
         self.is_selecting_region = True
         self.select_start = QPoint(); self.select_end = QPoint()
         self.setCursor(Qt.CrossCursor)
-        self.show_toast("Seçim Yapın")
+        self.show_toast("Alan seçin veya tam ekran için tek tıklayın")
         self.update()
 
     def cancel_screenshot(self):
@@ -297,5 +298,4 @@ class DrawingOverlay(QMainWindow):
             elif self.drawing_mode=="rect": p.drawRect(QRect(self.start_point, self.last_point).normalized())
             elif self.drawing_mode=="ellipse": p.drawEllipse(QRect(self.start_point, self.last_point).normalized())
             
-        # [DÜZELTME 2] Z-Order Garantisi: Çizim biter bitmez UI'ı öne çek (Flickering önler)
         self.bring_ui_to_front()

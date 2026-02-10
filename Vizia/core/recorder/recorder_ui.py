@@ -2,8 +2,8 @@
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
                              QComboBox, QFrame, QApplication, QFileDialog, QGraphicsDropShadowEffect, QListView)
-from PyQt5.QtCore import Qt, QTimer, QDate, QTime, QPoint
-from PyQt5.QtGui import QColor, QKeySequence
+from PyQt5.QtCore import Qt, QTimer, QDate, QTime, QPoint, QSize
+from PyQt5.QtGui import QColor, QKeySequence, QIcon
 import os
 import sys
 import datetime
@@ -14,6 +14,13 @@ try:
 except ImportError:
     from .camera_widget import ResizableCameraWidget
     from .engine_wrapper import CppEngineWrapper
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 class MiniControlPanel(QWidget):
     def __init__(self, parent_controller):
@@ -48,7 +55,6 @@ class MiniControlPanel(QWidget):
         self.btn_pause.setFixedSize(32, 32)
         self.btn_pause.setCheckable(True)
         self.btn_pause.setCursor(Qt.PointingHandCursor)
-        # [KRİTİK GÜNCELLEME] Buton odağını kapat (Space tuşu tetiklemesin)
         self.btn_pause.setFocusPolicy(Qt.NoFocus)
         self.btn_pause.setStyleSheet("""
             QPushButton { background: #333; color: white; border-radius: 16px; font-weight: bold; border: 1px solid #444; }
@@ -61,7 +67,6 @@ class MiniControlPanel(QWidget):
         self.btn_stop = QPushButton("■")
         self.btn_stop.setFixedSize(32, 32)
         self.btn_stop.setCursor(Qt.PointingHandCursor)
-        # [KRİTİK GÜNCELLEME] Buton odağını kapat
         self.btn_stop.setFocusPolicy(Qt.NoFocus)
         self.btn_stop.setStyleSheet("""
             QPushButton { background: #ff3b30; color: white; border-radius: 16px; font-weight: bold; font-size: 16px; border: none; }
@@ -75,18 +80,23 @@ class MiniControlPanel(QWidget):
         self.elapsed_seconds = 0
         self.blink_state = True
     
-    # [KRİTİK GÜNCELLEME] Space Tuşu Yakalayıcı
+    # [GÜNCELLENDİ] Backspace Tuşu Koruması
     def keyPressEvent(self, event):
         key = event.key()
         overlay = self.controller.overlay
         if overlay:
+            # Backspace sadece Tahtayı tetikler
+            if key == Qt.Key_Backspace:
+                overlay.toolbar.toggle_board()
+                event.accept()
+                return
+
             hotkey_str = overlay.settings.get("hotkeys").get("board_mode")
             if hotkey_str:
                 seq = QKeySequence(key)
-                # Kısayol eşleşirse (Genelde Space)
                 if seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch:
-                    overlay.toolbar.toggle_board() # Sadece tahtayı aç
-                    event.accept() # Olayı tüket, başka yere gitmesin
+                    overlay.toolbar.toggle_board()
+                    event.accept() 
                     return 
         super().keyPressEvent(event)
 
@@ -185,7 +195,6 @@ class RecorderController(QWidget):
         h = QHBoxLayout()
         ttl = QLabel("Kayıt Stüdyosu"); ttl.setStyleSheet("font-size: 24px; font-weight: 800; color: white;")
         cls = QPushButton("✕"); cls.setFixedSize(30,30); cls.clicked.connect(self.close_panel)
-        # [KRİTİK GÜNCELLEME] Focus Policy
         cls.setFocusPolicy(Qt.NoFocus)
         cls.setStyleSheet("background: transparent; color: #666; font-size: 16px; border: none; font-weight: bold;")
         h.addWidget(ttl); h.addStretch(); h.addWidget(cls)
@@ -193,7 +202,6 @@ class RecorderController(QWidget):
         
         l.addWidget(QLabel("SES KAYNAĞI", objectName="H"))
         self.c_mic = QComboBox(); self.c_mic.setView(QListView())
-        # Combo box'lar ok tuşları için focus isteyebilir, ama Space için kapatalım
         self.c_mic.setFocusPolicy(Qt.NoFocus)
         self.c_mic.addItems(["Sadece Sistem Sesi", "Sistem Sesi + Mikrofon", "Sessiz"])
         l.addWidget(self.c_mic)
@@ -208,7 +216,17 @@ class RecorderController(QWidget):
         l.addWidget(QLabel("DOSYA KONUMU", objectName="H"))
         ph = QHBoxLayout()
         self.lbl_p = QLabel("..."); self.lbl_p.setStyleSheet("color: #888;")
-        btn_p = QPushButton("📂"); btn_p.setFixedSize(40,40); btn_p.setObjectName("Path"); btn_p.clicked.connect(self.ch_path)
+        
+        # [GÜNCELLENDİ] Klasör butonu ikonu folder.png
+        btn_p = QPushButton(); btn_p.setFixedSize(40,40); btn_p.setObjectName("Path")
+        folder_icon_path = resource_path("Vizia/Assets/folder.png")
+        if os.path.exists(folder_icon_path):
+            btn_p.setIcon(QIcon(folder_icon_path))
+            btn_p.setIconSize(QSize(24, 24))
+        else:
+            btn_p.setText("📂")
+            
+        btn_p.clicked.connect(self.ch_path)
         btn_p.setFocusPolicy(Qt.NoFocus)
         ph.addWidget(self.lbl_p, 1); ph.addWidget(btn_p)
         l.addLayout(ph); self.upd_path()
@@ -218,7 +236,6 @@ class RecorderController(QWidget):
         self.btn_rec = QPushButton("KAYDI BAŞLAT")
         self.btn_rec.setFixedHeight(60)
         self.btn_rec.setCursor(Qt.PointingHandCursor)
-        # [KRİTİK GÜNCELLEME] Ana kayıt butonu odağını kapat
         self.btn_rec.setFocusPolicy(Qt.NoFocus)
         self.btn_rec.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ff3b30, stop:1 #ff2d55);
@@ -233,10 +250,16 @@ class RecorderController(QWidget):
         self.mode_lbl.setAlignment(Qt.AlignCenter); self.mode_lbl.setStyleSheet("color: #444; font-size: 10px; margin-top:5px; font-weight: bold;")
         l.addWidget(self.mode_lbl)
 
-    # [KRİTİK GÜNCELLEME] Space Tuşu Yakalayıcı
+    # [GÜNCELLENDİ] Backspace Tuşu Koruması
     def keyPressEvent(self, event):
         key = event.key()
         if self.overlay:
+            # Backspace sadece Tahtayı tetikler
+            if key == Qt.Key_Backspace:
+                self.overlay.toolbar.toggle_board()
+                event.accept()
+                return
+
             hotkey_str = self.overlay.settings.get("hotkeys").get("board_mode")
             if hotkey_str:
                 seq = QKeySequence(key)
@@ -271,9 +294,11 @@ class RecorderController(QWidget):
             rect = self.camera_widget.geometry()
         self.engine.update_camera_config(self.c_cam.currentIndex() == 1, rect)
 
+    # [GÜNCELLENDİ] Aynı anda tek kayıt kontrolü
     def toggle_rec(self):
         if self.is_recording:
-            if self.overlay: self.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor!")
+            if self.overlay: 
+                self.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor! İkinci bir kayıt başlatılamaz.")
             return
 
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
