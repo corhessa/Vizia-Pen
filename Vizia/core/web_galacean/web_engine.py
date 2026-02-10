@@ -6,27 +6,23 @@ from PyQt5.QtCore import QUrl
 
 class ViziaEngineAssets:
     """
-    Vizia Studio için gerekli yerel HTML dosyasını bulur ve 
-    WebEngine'in anlayacağı bir URL formatına çevirir.
+    Vizia Studio için gerekli yerel HTML dosyasını bulur.
     """
     
     @staticmethod
     def get_engine_url():
         try:
-            # 1. Şu anki dosyanın (web_engine.py) konumunu al
-            # Örn: C:\Github\Vizia-Pen\Vizia\core\web_galacean
             current_dir = os.path.dirname(os.path.abspath(__file__))
-
-            # 2. Proje ana dizinine çık (2 seviye yukarı: core -> Vizia)
-            # Örn: C:\Github\Vizia-Pen\Vizia
-            project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
-
-            # 3. HTML dosyasının yolunu oluştur
-            # HATA DÜZELTİLDİ: "Vizia" klasörü zaten project_root içinde olduğu için
-            # tekrar "Vizia" eklememize gerek yok. Doğrudan "Assets"e gidiyoruz.
-            html_path = os.path.join(project_root, "Assets", "Web", "vizia_editor.html")
             
-            # Kontrol (Terminalde görmek için)
+            # [FIX 1] Klasör adı "web" (küçük harf) olmalı.
+            # Proje yapısı: Vizia/core/web_galacean -> (2 up) -> Vizia -> Assets -> web
+            project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
+            html_path = os.path.join(project_root, "Assets", "web", "vizia_editor.html")
+            
+            if not os.path.exists(html_path):
+                # Fallback: Belki büyük harflidir
+                html_path = os.path.join(project_root, "Assets", "Web", "vizia_editor.html")
+
             print(f"Vizia Engine Yolu: {html_path}")
 
             if not os.path.exists(html_path):

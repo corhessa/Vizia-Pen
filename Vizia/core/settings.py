@@ -9,9 +9,10 @@ from PyQt5.QtGui import QKeySequence
 
 SETTINGS_FILE = "vizia_settings.json"
 
-# --- VARSAYILAN AYARLAR ---
+# [FIX 2] Eksik varsayılan ayar eklendi.
 DEFAULT_SETTINGS = {
     "save_path": os.path.join(os.path.expanduser("~"), "Pictures", "Vizia Screenshots"),
+    "video_save_path": os.path.join(os.path.expanduser("~"), "Videos", "Vizia Recordings"),
     "keep_colors": True,
     "hotkeys": {
         "board_mode": "Space",
@@ -26,7 +27,6 @@ DEFAULT_SETTINGS = {
     "custom_colors": ["#2c2c2e"] * 10
 }
 
-# --- AYAR YÖNETİCİSİ ---
 class SettingsManager:
     def __init__(self):
         self.settings = self.load_settings()
@@ -38,6 +38,7 @@ class SettingsManager:
         try:
             with open(SETTINGS_FILE, "r") as f:
                 data = json.load(f)
+                # Yeni eklenen ayarlar eski dosyada yoksa defaulttan çek
                 for k, v in DEFAULT_SETTINGS.items():
                     if k not in data: data[k] = v
                 return data
@@ -65,7 +66,7 @@ class SettingsManager:
         seq = QKeySequence(key_str)
         return seq[0] if seq.count() > 0 else None
 
-# --- ARAYÜZ BİLEŞENLERİ ---
+# --- ARAYÜZ BİLEŞENLERİ (UI KODLARI AYNI KALDI) ---
 class KeybindButton(QPushButton):
     def __init__(self, action_key, current_key, parent_dialog):
         super().__init__(current_key)
@@ -85,12 +86,10 @@ class KeybindButton(QPushButton):
         self.parent_dialog.current_binding_btn = self
         self.parent_dialog.setFocus()
 
-# --- BURASI EKSİK OLABİLİR, MUTLAKA EKLE ---
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings_manager=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
-        # Ayarları kopyala (İptal edilirse geri dönmek için)
         self.temp_settings = json.loads(json.dumps(self.settings_manager.settings))
         self.current_binding_btn = None
         
@@ -142,7 +141,6 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self.tab_general)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # Kayıt Yeri
         layout.addWidget(QLabel("Ekran Görüntüsü Kayıt Yeri:"))
         path_box = QHBoxLayout()
         self.path_input = QLineEdit()
@@ -159,7 +157,6 @@ class SettingsDialog(QDialog):
         
         layout.addSpacing(20)
         
-        # Renk Paletini Koru
         self.chk_keep_colors = QCheckBox("Sıfırlarken Renk Paletimi Koru")
         self.chk_keep_colors.setChecked(self.temp_settings.get("keep_colors", True))
         self.chk_keep_colors.stateChanged.connect(self.update_keep_colors)

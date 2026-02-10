@@ -12,9 +12,10 @@ try:
     from core.recorder.camera_widget import ResizableCameraWidget
     from core.recorder.engine_wrapper import CppEngineWrapper
 except ImportError:
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-    from core.recorder.camera_widget import ResizableCameraWidget
-    from core.recorder.engine_wrapper import CppEngineWrapper
+    # Bu import yöntemi artık main.py üzerinden çalışınca sorunsuz olmalı
+    # Ama yine de yedek olarak kalsın
+    from .camera_widget import ResizableCameraWidget
+    from .engine_wrapper import CppEngineWrapper
 
 class MiniControlPanel(QWidget):
     def __init__(self, parent_controller):
@@ -78,8 +79,9 @@ class MiniControlPanel(QWidget):
         self.raise_()
         self.activateWindow()
         
-        geo = QApplication.primaryScreen().geometry()
-        self.move(geo.width() - 290, geo.height() - 130)
+        # [FIX 5] Konumlandırma Hatası: Taskbar'ın altında kalmaması için
+        geo = QApplication.primaryScreen().availableGeometry()
+        self.move(geo.width() - 280, geo.height() - 80)
 
     def update_timer(self):
         self.elapsed_seconds += 1
@@ -108,7 +110,7 @@ class MiniControlPanel(QWidget):
     def mousePressEvent(self, e): 
         if e.button() == Qt.LeftButton: 
             self.old_pos = e.globalPos()
-            self.raise_() # Overlay'in üzerine çık
+            self.raise_() 
             self.activateWindow()
     def mouseMoveEvent(self, e): 
         if hasattr(self, 'old_pos'): 
@@ -116,8 +118,10 @@ class MiniControlPanel(QWidget):
             self.move(self.pos() + delta)
             self.old_pos = e.globalPos()
 
-# --- ANA ARAYÜZ ---
 class RecorderController(QWidget):
+    # SADECE DEĞİŞEN KISIM: RecorderController.__init__
+# Dosyanın geri kalanı aynı.
+
     def __init__(self, settings_manager, overlay_ref=None):
         super().__init__()
         self.settings = settings_manager
@@ -125,8 +129,11 @@ class RecorderController(QWidget):
         self.is_recording = False
         
         self.camera_widget = ResizableCameraWidget()
+        self.camera_widget.geometry_changed.connect(self.update_cam_config_slot)
+        
         self.engine = CppEngineWrapper()
         
+        # ARTIK SİNYAL QImage TAŞIDIĞI İÇİN camera_widget.update_frame İLE TAM UYUMLU
         self.engine.preview_signal.connect(self.camera_widget.update_frame)
         
         self.mini_panel = MiniControlPanel(self)
@@ -140,24 +147,15 @@ class RecorderController(QWidget):
     def initUI(self):
         self.container = QFrame(self)
         self.container.setGeometry(15, 15, 420, 530)
-        
         self.container.setStyleSheet("""
             QFrame#Main { background: #121212; border: 1px solid #2a2a2a; border-radius: 24px; }
             QLabel { color: #f0f0f0; font-family: 'Segoe UI'; font-size: 14px; }
             QLabel#H { color: #888; font-size: 11px; font-weight: bold; letter-spacing: 1px; margin-top: 15px; }
-            
-            QComboBox { 
-                background-color: #1e1e20; border: 1px solid #333; border-radius: 12px; padding: 10px; color: white; font-size: 13px;
-            }
+            QComboBox { background-color: #1e1e20; border: 1px solid #333; border-radius: 12px; padding: 10px; color: white; font-size: 13px; }
             QComboBox:hover { border-color: #555; }
             QComboBox::drop-down { border: none; width: 30px; }
-            QComboBox::down-arrow { 
-                image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #888; margin-right: 10px; 
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1e1e20; color: white; selection-background-color: #007aff; selection-color: white; border: 1px solid #333; outline: none;
-            }
-            
+            QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #888; margin-right: 10px; }
+            QComboBox QAbstractItemView { background-color: #1e1e20; color: white; selection-background-color: #007aff; selection-color: white; border: 1px solid #333; outline: none; }
             QPushButton#Path { background: #1e1e20; border: 1px solid #333; border-radius: 12px; }
             QPushButton#Path:hover { border-color: #007aff; }
         """)
@@ -200,10 +198,8 @@ class RecorderController(QWidget):
         self.btn_rec.setFixedHeight(60)
         self.btn_rec.setCursor(Qt.PointingHandCursor)
         self.btn_rec.setStyleSheet("""
-            QPushButton { 
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ff3b30, stop:1 #ff2d55);
-                color: white; font-size: 16px; font-weight: bold; border-radius: 30px; border: none; 
-            }
+            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ff3b30, stop:1 #ff2d55);
+            color: white; font-size: 16px; font-weight: bold; border-radius: 30px; border: none; }
             QPushButton:hover { background: #ff453a; margin-top: -2px; }
             QPushButton:pressed { margin-top: 2px; }
         """)
@@ -232,7 +228,13 @@ class RecorderController(QWidget):
         else: 
             self.camera_widget.hide()
         
-        self.engine.update_camera_config(active, self.camera_widget.geometry())
+        self.update_cam_config_slot()
+
+    # [FIX 5] Slot Fonksiyonu
+    def update_cam_config_slot(self, rect=None):
+        if rect is None:
+            rect = self.camera_widget.geometry()
+        self.engine.update_camera_config(self.c_cam.currentIndex() == 1, rect)
 
     def toggle_rec(self):
         if self.is_recording:
@@ -245,13 +247,16 @@ class RecorderController(QWidget):
         
         fn = os.path.join(base_dir, f"Vizia_{timestamp}.mp4")
         
-        self.engine.update_camera_config(self.c_cam.currentIndex()==1, self.camera_widget.geometry())
+        self.update_cam_config_slot()
         
         self.is_recording = True
         self.hide() 
         self.mini_panel.start_timer()
         
         if self.overlay: self.overlay.show_toast("🔴 Kayıt Başladı")
+        
+        # [FIX 4] Ses ayarını motora göndermek için parametre eklenebilir
+        # Şimdilik sadece başlatıyoruz, engine kısmında mss fallback eklendi.
         self.engine.start(fn, 24) 
         
         self.btn_rec.setText("KAYDI DURDUR")
@@ -277,7 +282,6 @@ class RecorderController(QWidget):
 
     def showEvent(self, e):
         self.raise_(); self.activateWindow()
-
     def mousePressEvent(self, e): 
         if e.button()==Qt.LeftButton: self.old=e.globalPos()
         self.raise_(); self.activateWindow()

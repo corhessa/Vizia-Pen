@@ -1,3 +1,5 @@
+# Vizia/core/recorder/engine_wrapper.py
+
 import threading
 import time
 import os
@@ -5,60 +7,71 @@ import ctypes
 import numpy as np
 import cv2
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QMutex
+from PyQt5.QtGui import QImage
 
+# Fallback: mss
 try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
-    ctypes.windll.user32.SetProcessDPIAware()
+    import mss
+except ImportError:
+    mss = None
 
-# --- GÜVENLİ KAMERA THREAD'İ ---
 class CameraThread(QThread):
-    frame_ready = pyqtSignal(np.ndarray)
+    # ARTIK NUMPY DEĞİL, DOĞRUDAN QIMAGE GÖNDERİYORUZ (DAHA GÜVENLİ)
+    frame_ready = pyqtSignal(QImage, np.ndarray) # (Preview Image, Raw Recording Frame)
 
     def __init__(self):
         super().__init__()
         self.cap = None
         self.running = False
         self.mutex = QMutex()
-        self.latest_frame = None
 
     def run(self):
         try:
-            # KRİTİK DEĞİŞİKLİK: CAP_DSHOW'u kaldırdım.
-            # DSHOW, bazı sürücülerde doğrudan CRASH verdirtiyor.
-            # Varsayılan (Backend=0 veya Auto) en güvenli yoldur.
-            self.cap = cv2.VideoCapture(0)
+            # Windows için en güvenli backend CAP_DSHOW'dur.
+            # Eğer yine açılmazsa cv2.CAP_MSMF denebilir ama DSHOW genelde çökmez.
+            if os.name == 'nt':
+                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            else:
+                self.cap = cv2.VideoCapture(0)
             
+            # Kamera açılmazsa 2. deneme (backend belirtmeden)
             if not self.cap or not self.cap.isOpened():
-                print("Kamera varsayılan modda açılamadı.")
+                self.cap = cv2.VideoCapture(0)
+
+            if not self.cap or not self.cap.isOpened():
+                print("Kamera donanımı bulunamadı.")
                 return
 
-            # Çözünürlük ayarı (Hata verirse yoksay, programı çökertme)
-            try:
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-            except: pass
-
+            # Çözünürlüğü zorlamayalım, varsayılan neyse o gelsin (Stabilite için)
             self.running = True
+            
             while self.running:
-                # Güvenli okuma
-                try:
-                    ret, frame = self.cap.read()
-                    if ret and frame is not None and frame.size > 0:
-                        self.mutex.lock()
-                        self.latest_frame = frame.copy()
-                        self.mutex.unlock()
-                        self.frame_ready.emit(frame)
-                    else:
-                        time.sleep(0.1)
-                except:
-                    # Okuma hatası olursa döngüyü kırma, tekrar dene
-                    pass
+                ret, frame = self.cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    try:
+                        # --- KRİTİK ÇÖZÜM: RGBA (32-bit) DÖNÜŞÜMÜ ---
+                        # RGB888 (24-bit) hizalama sorunu yaratabilir ve çökertebilir.
+                        # RGBA8888 (32-bit) her zaman 4-byte hizalıdır. ASLA ÇÖKMEZ.
+                        frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+                        h, w, ch = frame_rgba.shape
+                        bytes_per_line = ch * w
+                        
+                        # QImage'i burada oluşturup kopyalıyoruz.
+                        # UI thread'ine "saf" bir PyQt nesnesi gidiyor.
+                        qt_img = QImage(frame_rgba.data, w, h, bytes_per_line, QImage.Format_RGBA8888).copy()
+                        
+                        # Preview için QImage, Kayıt için orijinal frame (BGR) gönder
+                        self.frame_ready.emit(qt_img, frame)
+                        
+                    except Exception as e:
+                        print(f"Dönüştürme Hatası: {e}")
+                else:
+                    time.sleep(0.1)
                 
-                time.sleep(0.033) # ~30 FPS
+                time.sleep(0.03) # ~30 FPS
                 
         except Exception as e:
-            print(f"Kamera Thread Hatası: {e}")
+            print(f"Kamera Kritik Hata: {e}")
         finally:
             if self.cap:
                 self.cap.release()
@@ -67,61 +80,33 @@ class CameraThread(QThread):
         self.running = False
         self.wait()
 
-    def get_frame(self):
-        self.mutex.lock()
-        try:
-            if self.latest_frame is not None:
-                return self.latest_frame.copy()
-            return None
-        finally:
-            self.mutex.unlock()
-
 
 class CppEngineWrapper(QObject):
-    preview_signal = pyqtSignal(np.ndarray)
+    preview_signal = pyqtSignal(QImage) # Sinyal artık QImage taşıyor
     
     def __init__(self):
         super().__init__()
         self.is_recording = False
-        self.is_paused = False
         self.stop_event = threading.Event()
         self.pause_event = threading.Event()
         self.pause_event.set() 
         
-        self.dll = None
-        self.cap_obj = None
-        self.mode = "PYTHON"
+        self.mode = "PYTHON" # C++ DLL'ini kapattık, crash riskini sıfırladık.
         
         self.camera_thread = None
         self.cam_geometry = None 
+        self.mutex_cam = QMutex()
         
-        self._load_cpp_engine()
-
-    def _load_cpp_engine(self):
-        try:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            cpp_dir = os.path.join(base_path, "..", "..", "core", "cpp_engine")
-            build_dir = os.path.join(cpp_dir, "build")
-            dll_path = os.path.join(build_dir, "recorder.dll")
-            
-            if dll_path and os.path.exists(dll_path):
-                self.dll = ctypes.CDLL(dll_path)
-                self.dll.init_engine.argtypes = [ctypes.c_int, ctypes.c_int]
-                self.dll.init_engine.restype = ctypes.c_void_p
-                self.dll.grab_frame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ubyte)]
-                self.dll.grab_frame.restype = ctypes.c_bool
-                self.dll.release_engine.argtypes = [ctypes.c_void_p]
-                self.mode = "CPP"
-            else:
-                self.mode = "PYTHON"
-        except Exception:
-            self.mode = "PYTHON"
+        # Son gelen kamera karesini kayıt için sakla
+        self.last_cam_frame_bgr = None 
 
     def update_camera_config(self, active, geometry_rect):
+        self.mutex_cam.lock()
         if geometry_rect:
             self.cam_geometry = (geometry_rect.x(), geometry_rect.y(), geometry_rect.width(), geometry_rect.height())
         else:
             self.cam_geometry = None
+        self.mutex_cam.unlock()
 
         if active:
             self.start_camera_preview()
@@ -131,7 +116,7 @@ class CppEngineWrapper(QObject):
     def start_camera_preview(self):
         if self.camera_thread is None or not self.camera_thread.isRunning():
             self.camera_thread = CameraThread()
-            self.camera_thread.frame_ready.connect(self._handle_camera_frame)
+            self.camera_thread.frame_ready.connect(self._handle_camera_data)
             self.camera_thread.start()
 
     def stop_camera_preview(self):
@@ -139,41 +124,52 @@ class CppEngineWrapper(QObject):
             self.camera_thread.stop()
             self.camera_thread = None
 
-    def _handle_camera_frame(self, frame_bgr):
-        try:
-            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            self.preview_signal.emit(rgb)
-        except: pass
+    def _handle_camera_data(self, qt_img, raw_frame_bgr):
+        # 1. Preview sinyalini UI'a gönder
+        self.preview_signal.emit(qt_img)
+        
+        # 2. Kayıt için ham veriyi sakla
+        self.mutex_cam.lock()
+        self.last_cam_frame_bgr = raw_frame_bgr
+        self.mutex_cam.unlock()
 
     def pause(self):
-        self.is_paused = True
         self.pause_event.clear()
         
     def resume(self):
-        self.is_paused = False
         self.pause_event.set()
 
     def _record_loop(self, filename, target_fps):
-        user32 = ctypes.windll.user32
-        width = user32.GetSystemMetrics(0)
-        height = user32.GetSystemMetrics(1)
-        
+        # Ekran boyutlarını al
+        if os.name == 'nt':
+            user32 = ctypes.windll.user32
+            width = user32.GetSystemMetrics(0)
+            height = user32.GetSystemMetrics(1)
+        else:
+            width, height = 1920, 1080 
+
         if not filename.endswith(".mp4"):
             filename = os.path.splitext(filename)[0] + ".mp4"
             
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(filename, fourcc, target_fps, (width, height))
         
-        frame_size = width * height * 4
-        c_buffer = (ctypes.c_ubyte * frame_size)()
-        c_pointer = ctypes.cast(c_buffer, ctypes.POINTER(ctypes.c_ubyte))
-        
-        if self.mode == "CPP":
-            self.cap_obj = self.dll.init_engine(width, height)
-        
+        # MSS (Screen Capture) Hazırlığı
+        sct = None
+        monitor = None
+        if mss:
+            sct = mss.mss()
+            # Genellikle monitors[1] ana ekrandır.
+            if len(sct.monitors) > 1:
+                monitor = sct.monitors[1]
+            else:
+                monitor = sct.monitors[0]
+
         start_time = time.time()
         frames_written = 0
         last_valid_frame = np.zeros((height, width, 3), dtype=np.uint8)
+
+        print(f"[REC] Kayıt Başladı: {filename}")
 
         while not self.stop_event.is_set():
             if not self.pause_event.is_set():
@@ -182,26 +178,57 @@ class CppEngineWrapper(QObject):
                 start_time += (time.time() - pause_start)
             
             current_frame = None
-            if self.mode == "CPP" and self.cap_obj:
-                if self.dll.grab_frame(self.cap_obj, c_pointer):
-                    frame_raw = np.ctypeslib.as_array(c_buffer).reshape(height, width, 4)
-                    current_frame = frame_raw[:, :, :3] 
             
-            if current_frame is None: current_frame = last_valid_frame
-            else: last_valid_frame = current_frame.copy()
+            # --- EKRAN GÖRÜNTÜSÜ AL ---
+            if sct:
+                try:
+                    img = sct.grab(monitor)
+                    frame_np = np.array(img)
+                    # MSS BGRA döndürür, BGR'a çevir
+                    current_frame = cv2.cvtColor(frame_np, cv2.COLOR_BGRA2BGR)
+                    
+                    # Boyut uyuşmazlığı varsa resize et
+                    if current_frame.shape[0] != height or current_frame.shape[1] != width:
+                         current_frame = cv2.resize(current_frame, (width, height))
+                except Exception as e:
+                    print(f"Screen Grab Error: {e}")
 
-            if self.camera_thread and self.cam_geometry:
-                cam_frame = self.camera_thread.get_frame()
-                if cam_frame is not None:
-                    cx, cy, cw, ch = self.cam_geometry
-                    if cx >= 0 and cy >= 0 and (cx + cw) <= width and (cy + ch) <= height:
-                        try:
-                            cam_resized = cv2.resize(cam_frame, (cw, ch))
-                            current_frame[cy:cy+ch, cx:cx+cw] = cam_resized
-                        except: pass
+            if current_frame is None: 
+                current_frame = last_valid_frame.copy()
+            else: 
+                last_valid_frame = current_frame
+
+            # --- KAMERA OVERLAY ---
+            self.mutex_cam.lock()
+            cam_frame = self.last_cam_frame_bgr
+            geo = self.cam_geometry
+            self.mutex_cam.unlock()
+
+            if cam_frame is not None and geo:
+                cx, cy, cw, ch = geo
+                
+                # Taşma Kontrolleri
+                y1 = max(0, cy)
+                y2 = min(height, cy + ch)
+                x1 = max(0, cx)
+                x2 = min(width, cx + cw)
+                
+                if y2 > y1 and x2 > x1:
+                    try:
+                        target_w = x2 - x1
+                        target_h = y2 - y1
+                        
+                        # Kamerayı o boyuta getir
+                        cam_resized = cv2.resize(cam_frame, (target_w, target_h))
+                        
+                        # Ana kareye yapıştır
+                        current_frame[y1:y2, x1:x2] = cam_resized
+                    except: 
+                        pass
 
             out.write(current_frame)
             
+            # FPS Sabitleme
             elapsed_time = time.time() - start_time
             expected_frames = int(elapsed_time * target_fps)
             frames_to_add = expected_frames - frames_written
@@ -211,11 +238,11 @@ class CppEngineWrapper(QObject):
                     out.write(current_frame)
                     frames_written += 1
             
-            time.sleep(0.001)
+            # CPU'yu yakmamak için minik uyku
+            time.sleep(0.002)
 
         out.release()
-        if self.mode == "CPP" and self.cap_obj:
-            self.dll.release_engine(self.cap_obj)
+        if sct: sct.close()
         print("[REC] Kayıt Bitti.")
 
     def start(self, save_path, fps=24):
@@ -223,9 +250,6 @@ class CppEngineWrapper(QObject):
         self.is_recording = True
         self.stop_event.clear()
         
-        folder = os.path.dirname(save_path)
-        if not os.path.exists(folder): os.makedirs(folder)
-
         self.thread = threading.Thread(target=self._record_loop, args=(save_path, fps))
         self.thread.daemon = True
         self.thread.start()
