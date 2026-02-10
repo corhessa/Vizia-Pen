@@ -5,7 +5,8 @@ from PyQt5.QtGui import QPainter, QPixmap, QPainterPath, QColor, QPen, QRegion, 
 from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
 
 from core.settings import SettingsManager
-from ui.ui_components import ModernNotification, ViziaImageItem
+from ui.widgets.notification import ModernNotification
+from ui.widgets.image_item import ViziaImageItem
 from ui.text_widgets import ViziaTextItem 
 from core.screenshot import ScreenshotManager
 

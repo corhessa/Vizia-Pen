@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSl
 from PyQt5.QtGui import QPixmap, QColor, QIcon, QKeySequence
 from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve, QPoint
 
-from ui.ui_components import ModernColorPicker
+from ui.widgets.color_picker import ModernColorPicker
 from ui.styles import TOOLBAR_STYLESHEET, get_color_btn_style
 from core.settings import SettingsDialog
 
