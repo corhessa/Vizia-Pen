@@ -8,7 +8,7 @@ try:
 except ImportError:
     raise ImportError("PyQtWebEngine is required. Install it with: pip install PyQtWebEngine")
 
-from .web_engine import ViziaEngineAssets
+from .resources import ViziaEngineAssets
 
 class ViziaEngineItem(QWidget):
     request_close = pyqtSignal(QWidget)

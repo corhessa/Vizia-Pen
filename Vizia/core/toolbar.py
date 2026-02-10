@@ -115,7 +115,7 @@ class ExtensionDrawer(QWidget):
 
     def action_open_engine(self):
         try:
-            from core.web_galacean.web_widgets import ViziaEngineItem
+            from Vizia.core.engine.viewport import ViziaEngineItem
             self.engine_window = ViziaEngineItem(self.toolbar_ref.overlay)
             self.engine_window.show()
             
