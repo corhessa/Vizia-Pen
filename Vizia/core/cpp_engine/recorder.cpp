@@ -1,58 +1,90 @@
-#include <windows.h>
-#include <iostream>
+// Vizia/core/cpp_engine/recorder.cpp
 
-struct CapContext {
-    HDC hScreen;
-    HDC hDC;
-    HBITMAP hBmp;
-    void* pBits;
-    int width;
-    int height;
-};
+#include "recorder.h"
+#include <iostream>
 
 extern "C" {
     __declspec(dllexport) CapContext* init_engine(int w, int h) {
-        CapContext* ctx = new CapContext();
+        // Parametre kontrolü
+        if (w <= 0 || h <= 0) return nullptr;
+
+        CapContext* ctx = new (std::nothrow) CapContext();
+        if (!ctx) return nullptr;
+
         ctx->width = w;
         ctx->height = h;
+        ctx->bufferSize = (size_t)w * h * 4; // BGRA = 4 byte per pixel
 
-        // Ekran DC'sini al
-        ctx->hScreen = GetDC(NULL); 
+        // 1. Ekran DC'sini al
+        ctx->hScreen = GetDC(NULL);
+        if (!ctx->hScreen) {
+            delete ctx;
+            return nullptr;
+        }
+
+        // 2. Bellekte uyumlu bir DC oluştur
         ctx->hDC = CreateCompatibleDC(ctx->hScreen);
+        if (!ctx->hDC) {
+            ReleaseDC(NULL, ctx->hScreen);
+            delete ctx;
+            return nullptr;
+        }
 
-        // RGB Bitmap oluştur (4 Kanal - BGRA)
-        BITMAPINFO bmi = {0};
+        // 3. Bitmap bilgilerini hazırla (BGRA formatı)
+        BITMAPINFO bmi = { 0 };
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = w;
-        bmi.bmiHeader.biHeight = -h; // Eksi değer görüntüyü düz (top-down) yapar
+        bmi.bmiHeader.biHeight = -h; // Negatif: Top-down görüntü (OpenCV uyumlu)
         bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32; // Her piksel 4 byte (B, G, R, Alpha)
+        bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
 
+        // 4. DIB Section oluştur (Doğrudan bellek erişimi sağlar)
         ctx->hBmp = CreateDIBSection(ctx->hDC, &bmi, DIB_RGB_COLORS, &ctx->pBits, NULL, 0);
+        if (!ctx->hBmp || !ctx->pBits) {
+            DeleteDC(ctx->hDC);
+            ReleaseDC(NULL, ctx->hScreen);
+            delete ctx;
+            return nullptr;
+        }
+
+        // 5. Bitmap'i DC'ye seç
         SelectObject(ctx->hDC, ctx->hBmp);
 
         return ctx;
     }
 
-    __declspec(dllexport) bool grab_frame(CapContext* ctx, unsigned char* buffer) {
-        if (!ctx) return false;
+    __declspec(dllexport) bool grab_frame(CapContext* ctx, unsigned char* buffer, size_t bufferSize) {
+        // Güvenlik kontrolleri (Buffer Overrun önleme)
+        if (!ctx || !buffer || !ctx->pBits || bufferSize < ctx->bufferSize) {
+            return false;
+        }
 
-        // BitBlt ile ekranı kopyala (SRCCOPY | CAPTUREBLT)
-        // CAPTUREBLT: Yarı saydam pencereleri de alır
-        BitBlt(ctx->hDC, 0, 0, ctx->width, ctx->height, ctx->hScreen, 0, 0, SRCCOPY | 0x40000000);
+        // BitBlt ile ekranı belleğe kopyala
+        // SRCCOPY | CAPTUREBLT: Katmanlı (yarı saydam) pencereleri de dahil eder.
+        BOOL success = BitBlt(
+            ctx->hDC, 0, 0, ctx->width, ctx->height, 
+            ctx->hScreen, 0, 0, 
+            SRCCOPY | CAPTUREBLT
+        );
 
-        // Veriyi Python buffer'ına kopyala
-        memcpy(buffer, ctx->pBits, ctx->width * ctx->height * 4);
-        
-        return true;
+        if (success) {
+            // Veriyi Python'dan gelen tampon belleğe (buffer) güvenli kopyala
+            memcpy(buffer, ctx->pBits, ctx->bufferSize);
+            return true;
+        }
+
+        return false;
     }
 
     __declspec(dllexport) void release_engine(CapContext* ctx) {
         if (!ctx) return;
-        ReleaseDC(NULL, ctx->hScreen);
-        DeleteDC(ctx->hDC);
-        DeleteObject(ctx->hBmp);
+
+        // GDI Kaynaklarını doğru sırayla temizle (Memory Leak önleme)
+        if (ctx->hBmp) DeleteObject(ctx->hBmp);
+        if (ctx->hDC) DeleteDC(ctx->hDC);
+        if (ctx->hScreen) ReleaseDC(NULL, ctx->hScreen);
+
         delete ctx;
     }
 }

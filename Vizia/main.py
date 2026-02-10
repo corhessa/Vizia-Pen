@@ -1,51 +1,60 @@
 import sys
 import os
-import ctypes
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
+
+# [EKLEME] Çalışma dizini sorunlarını önlemek için dizini main.py'nin olduğu yere sabitle
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from core.overlay import DrawingOverlay
 from core.toolbar import ModernToolbar
 
-# [FIX 10] DPI Ayarı: Programın en başında, QApplication oluşmadan önce yapılmalı.
-try:
-    if os.name == 'nt': # Sadece Windows için
-        ctypes.windll.shcore.SetProcessDpiAwareness(2) # Per-Monitor DPI Aware
-except Exception:
-    pass
-
 def resource_path(relative_path):
-    """ Dosya yollarını EXE ve Geliştirme Ortamı uyumlu hale getirir """
+    """ Dosya yollarını hem EXE hem de IDE için uyumlu hale getirir """
     try:
-        # PyInstaller ile paketlenmişse
         base_path = sys._MEIPASS
     except Exception:
-        # [FIX 3] Geliştirme ortamında (IDE/Terminal) çalışma dizini sorunu çözümü
+        # [DÜZELTME] os.path.abspath(".") yerine dosyanın kendi konumunu baz al
         base_path = os.path.dirname(os.path.abspath(__file__))
-        # main.py "Vizia" klasörü içindeyse, bir üst klasöre çıkmaya gerek yok
-        # çünkü assets klasörü main.py ile aynı seviyedeki "Assets" içinde olabilir 
-        # veya proje yapısına göre ayarlanmalı. 
-        # Mevcut yapıda: Vizia/main.py ve Vizia/Assets var.
-        
     return os.path.join(base_path, relative_path)
 
 if __name__ == "__main__":
-    # Yüksek DPI ekranlar için ölçeklendirme
+    # [DÜZELTME] Bazı sistemlerde DPI ölçeklendirmesi çakışmaya neden olabilir
+    # Bu ayarların QApplication oluşturulmadan hemen önce yapılması kritiktir
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     
     app = QApplication(sys.argv)
-    app.setApplicationName("Vizia Pen")
     
-    # Uygulama ikonunu yükle
-    # resource_path zaten Vizia klasörünü baz alıyorsa "Assets/VIZIA.ico" yeterli olabilir
-    # Ancak proje yapısı karışık olduğu için güvenli yolu deniyoruz.
+    # [DÜZELTME] İkon yolu kontrolü
+    # Assets klasörü Vizia içinde mi yoksa bir üstte mi kontrol et
     icon_path = resource_path("Assets/VIZIA.ico")
-    if not os.path.exists(icon_path):
-        # Yedek deneme (Vizia klasörü altındaysa)
-        icon_path = resource_path("Vizia/Assets/VIZIA.ico")
-  
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
+    else:
+        # Alternatif yol denemesi
+        icon_path = resource_path("Vizia/Assets/VIZIA.ico")
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
     
-sys.exit(app.exec_())
+    try:
+        # 1. Uygulama bileşenlerini oluştur
+        overlay = DrawingOverlay()
+        toolbar = ModernToolbar(overlay)
+        
+        # 2. Bileşenleri birbirine bağla
+        overlay.toolbar = toolbar
+        
+        # 4. Araç çubuğunu göster
+        toolbar.show()
+        
+        print("Vizia Pen başlatıldı...") # Terminalden takip için
+        
+        # 5. Uygulama döngüsünü başlat
+        sys.exit(app.exec_())
+    except Exception as e:
+        print(f"Başlatma sırasında kritik hata oluştu: {e}")
