@@ -3,7 +3,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
                              QComboBox, QFrame, QApplication, QFileDialog, QGraphicsDropShadowEffect, QListView)
 from PyQt5.QtCore import Qt, QTimer, QDate, QTime, QPoint
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QKeySequence
 import os
 import sys
 import datetime
@@ -19,13 +19,13 @@ class MiniControlPanel(QWidget):
     def __init__(self, parent_controller):
         super().__init__()
         self.controller = parent_controller
-        # [GÜNCELLENDİ] Her zaman en üstte kalmasını garanti et
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(260, 60)
+        
+        self.setFixedSize(280, 80)
         
         self.container = QFrame(self)
-        self.container.setGeometry(0, 0, 260, 60)
+        self.container.setGeometry(10, 10, 260, 60)
         self.container.setStyleSheet("""
             QFrame { background-color: #1c1c1e; border: 1px solid #333; border-radius: 30px; }
             QLabel { color: white; font-weight: bold; font-family: 'Segoe UI'; font-size: 14px; }
@@ -48,6 +48,8 @@ class MiniControlPanel(QWidget):
         self.btn_pause.setFixedSize(32, 32)
         self.btn_pause.setCheckable(True)
         self.btn_pause.setCursor(Qt.PointingHandCursor)
+        # [KRİTİK GÜNCELLEME] Buton odağını kapat (Space tuşu tetiklemesin)
+        self.btn_pause.setFocusPolicy(Qt.NoFocus)
         self.btn_pause.setStyleSheet("""
             QPushButton { background: #333; color: white; border-radius: 16px; font-weight: bold; border: 1px solid #444; }
             QPushButton:checked { background: #faad14; color: black; border: none; } 
@@ -59,6 +61,8 @@ class MiniControlPanel(QWidget):
         self.btn_stop = QPushButton("■")
         self.btn_stop.setFixedSize(32, 32)
         self.btn_stop.setCursor(Qt.PointingHandCursor)
+        # [KRİTİK GÜNCELLEME] Buton odağını kapat
+        self.btn_stop.setFocusPolicy(Qt.NoFocus)
         self.btn_stop.setStyleSheet("""
             QPushButton { background: #ff3b30; color: white; border-radius: 16px; font-weight: bold; font-size: 16px; border: none; }
             QPushButton:hover { background: #ff453a; }
@@ -70,7 +74,22 @@ class MiniControlPanel(QWidget):
         self.timer.timeout.connect(self.update_timer)
         self.elapsed_seconds = 0
         self.blink_state = True
-        
+    
+    # [KRİTİK GÜNCELLEME] Space Tuşu Yakalayıcı
+    def keyPressEvent(self, event):
+        key = event.key()
+        overlay = self.controller.overlay
+        if overlay:
+            hotkey_str = overlay.settings.get("hotkeys").get("board_mode")
+            if hotkey_str:
+                seq = QKeySequence(key)
+                # Kısayol eşleşirse (Genelde Space)
+                if seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch:
+                    overlay.toolbar.toggle_board() # Sadece tahtayı aç
+                    event.accept() # Olayı tüket, başka yere gitmesin
+                    return 
+        super().keyPressEvent(event)
+
     def start_timer(self):
         self.elapsed_seconds = 0
         self.timer.start(1000)
@@ -79,7 +98,7 @@ class MiniControlPanel(QWidget):
         self.activateWindow()
         
         geo = QApplication.primaryScreen().availableGeometry()
-        self.move(geo.width() - 280, geo.height() - 80)
+        self.move(geo.width() - 300, geo.height() - 100)
 
     def update_timer(self):
         self.elapsed_seconds += 1
@@ -110,11 +129,14 @@ class MiniControlPanel(QWidget):
             self.old_pos = e.globalPos()
             self.raise_() 
             self.activateWindow()
+            if self.controller.overlay: self.controller.overlay.bring_ui_to_front()
+
     def mouseMoveEvent(self, e): 
         if hasattr(self, 'old_pos'): 
             delta = e.globalPos() - self.old_pos
             self.move(self.pos() + delta)
             self.old_pos = e.globalPos()
+            if self.controller.overlay: self.controller.overlay.bring_ui_to_front()
 
 class RecorderController(QWidget):
     def __init__(self, settings_manager, overlay_ref=None):
@@ -131,7 +153,6 @@ class RecorderController(QWidget):
         
         self.mini_panel = MiniControlPanel(self)
         
-        # [GÜNCELLENDİ] Her zaman en üstte
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(450, 560) 
@@ -164,17 +185,22 @@ class RecorderController(QWidget):
         h = QHBoxLayout()
         ttl = QLabel("Kayıt Stüdyosu"); ttl.setStyleSheet("font-size: 24px; font-weight: 800; color: white;")
         cls = QPushButton("✕"); cls.setFixedSize(30,30); cls.clicked.connect(self.close_panel)
+        # [KRİTİK GÜNCELLEME] Focus Policy
+        cls.setFocusPolicy(Qt.NoFocus)
         cls.setStyleSheet("background: transparent; color: #666; font-size: 16px; border: none; font-weight: bold;")
         h.addWidget(ttl); h.addStretch(); h.addWidget(cls)
         l.addLayout(h); l.addSpacing(10)
         
         l.addWidget(QLabel("SES KAYNAĞI", objectName="H"))
         self.c_mic = QComboBox(); self.c_mic.setView(QListView())
+        # Combo box'lar ok tuşları için focus isteyebilir, ama Space için kapatalım
+        self.c_mic.setFocusPolicy(Qt.NoFocus)
         self.c_mic.addItems(["Sadece Sistem Sesi", "Sistem Sesi + Mikrofon", "Sessiz"])
         l.addWidget(self.c_mic)
         
         l.addWidget(QLabel("KAMERA", objectName="H"))
         self.c_cam = QComboBox(); self.c_cam.setView(QListView())
+        self.c_cam.setFocusPolicy(Qt.NoFocus)
         self.c_cam.addItems(["Kamera Kapalı", "Webcam Aktif"])
         self.c_cam.currentIndexChanged.connect(self.cam_toggle)
         l.addWidget(self.c_cam)
@@ -183,6 +209,7 @@ class RecorderController(QWidget):
         ph = QHBoxLayout()
         self.lbl_p = QLabel("..."); self.lbl_p.setStyleSheet("color: #888;")
         btn_p = QPushButton("📂"); btn_p.setFixedSize(40,40); btn_p.setObjectName("Path"); btn_p.clicked.connect(self.ch_path)
+        btn_p.setFocusPolicy(Qt.NoFocus)
         ph.addWidget(self.lbl_p, 1); ph.addWidget(btn_p)
         l.addLayout(ph); self.upd_path()
         
@@ -191,6 +218,8 @@ class RecorderController(QWidget):
         self.btn_rec = QPushButton("KAYDI BAŞLAT")
         self.btn_rec.setFixedHeight(60)
         self.btn_rec.setCursor(Qt.PointingHandCursor)
+        # [KRİTİK GÜNCELLEME] Ana kayıt butonu odağını kapat
+        self.btn_rec.setFocusPolicy(Qt.NoFocus)
         self.btn_rec.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ff3b30, stop:1 #ff2d55);
             color: white; font-size: 16px; font-weight: bold; border-radius: 30px; border: none; }
@@ -203,6 +232,19 @@ class RecorderController(QWidget):
         self.mode_lbl = QLabel("Vizia Pen v1.0    Modern Drawing Assistant")
         self.mode_lbl.setAlignment(Qt.AlignCenter); self.mode_lbl.setStyleSheet("color: #444; font-size: 10px; margin-top:5px; font-weight: bold;")
         l.addWidget(self.mode_lbl)
+
+    # [KRİTİK GÜNCELLEME] Space Tuşu Yakalayıcı
+    def keyPressEvent(self, event):
+        key = event.key()
+        if self.overlay:
+            hotkey_str = self.overlay.settings.get("hotkeys").get("board_mode")
+            if hotkey_str:
+                seq = QKeySequence(key)
+                if seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch:
+                    self.overlay.toolbar.toggle_board()
+                    event.accept() 
+                    return 
+        super().keyPressEvent(event)
 
     def upd_path(self):
         p = self.settings.get("video_save_path")
@@ -229,7 +271,6 @@ class RecorderController(QWidget):
             rect = self.camera_widget.geometry()
         self.engine.update_camera_config(self.c_cam.currentIndex() == 1, rect)
 
-    # [GÜNCELLENDİ] Tek kayıt kontrolü ve başlatma
     def toggle_rec(self):
         if self.is_recording:
             if self.overlay: self.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor!")
@@ -247,7 +288,9 @@ class RecorderController(QWidget):
         self.hide() 
         self.mini_panel.start_timer()
         
-        if self.overlay: self.overlay.show_toast("🔴 Kayıt Başladı")
+        if self.overlay: 
+            self.overlay.show_toast("🔴 Kayıt Başladı")
+            self.overlay.bring_ui_to_front()
         
         self.engine.start(fn, 24) 
         
@@ -261,7 +304,9 @@ class RecorderController(QWidget):
         self.show()
         self.btn_rec.setText("KAYDI BAŞLAT")
         self.btn_rec.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ff3b30, stop:1 #ff2d55); color: white; border-radius: 30px; font-weight: bold;")
-        if self.overlay: self.overlay.show_toast("Video Kaydedildi ✅")
+        if self.overlay: 
+            self.overlay.show_toast("Video Kaydedildi ✅")
+            self.overlay.bring_ui_to_front()
 
     def close_panel(self):
         self.hide()
@@ -274,8 +319,13 @@ class RecorderController(QWidget):
 
     def showEvent(self, e):
         self.raise_(); self.activateWindow()
+        if self.overlay: self.overlay.bring_ui_to_front()
+
     def mousePressEvent(self, e): 
         if e.button()==Qt.LeftButton: self.old=e.globalPos()
         self.raise_(); self.activateWindow()
+        if self.overlay: self.overlay.bring_ui_to_front()
+        
     def mouseMoveEvent(self, e): 
         if hasattr(self,'old'): self.move(self.pos()+e.globalPos()-self.old); self.old=e.globalPos()
+        if self.overlay: self.overlay.bring_ui_to_front()

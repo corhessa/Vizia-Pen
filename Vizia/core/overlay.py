@@ -40,55 +40,63 @@ class DrawingOverlay(QMainWindow):
         
         self.setFocusPolicy(Qt.StrongFocus)
 
-    # [GÜNCELLENDİ] UI Kontrolü: Kayıt pencerelerini de kapsar
+    def bring_ui_to_front(self):
+        if not self.toolbar: return
+        
+        # 1. Ana Toolbar
+        if self.toolbar.isVisible(): self.toolbar.raise_()
+        
+        # 2. Drawer ve İçindekiler
+        if hasattr(self.toolbar, 'drawer'):
+            drawer = self.toolbar.drawer
+            if drawer.isVisible(): drawer.raise_()
+            
+            # 3. Recorder Pencereleri (4 parça)
+            rec_win = getattr(drawer, 'recorder_window', None)
+            if rec_win:
+                if rec_win.isVisible(): rec_win.raise_()
+                if hasattr(rec_win, 'mini_panel') and rec_win.mini_panel.isVisible():
+                    rec_win.mini_panel.raise_()
+                if hasattr(rec_win, 'camera_widget') and rec_win.camera_widget.isVisible():
+                    rec_win.camera_widget.raise_()
+
     def is_mouse_on_ui(self, pos):
         if self.toolbar:
             global_pos = self.mapToGlobal(pos)
             
-            # 1. Ana Toolbar
+            # Toolbar
             if self.toolbar.isVisible() and self.toolbar.geometry().contains(global_pos): 
                 self.toolbar.raise_()
                 return True
             
-            # 2. Drawer (Çekmece)
+            # Drawer
             drawer = getattr(self.toolbar, 'drawer', None)
             if drawer and drawer.isVisible() and drawer.geometry().contains(global_pos): 
                 drawer.raise_()
                 return True
             
-            # 3. Kayıt Modülü Pencereleri (Kritik Düzeltme)
-            # Drawer içindeki recorder_window referansına ulaş
+            # Recorder Pencereleri
             if drawer:
                 rec_win = getattr(drawer, 'recorder_window', None)
                 if rec_win:
-                    # A) Ana Kayıt Paneli
                     if rec_win.isVisible() and rec_win.geometry().contains(global_pos):
-                        rec_win.raise_()
-                        rec_win.activateWindow()
+                        rec_win.raise_(); rec_win.activateWindow()
                         return True
                     
-                    # B) Mini Kontrol Paneli (rec_win içinde tanımlı)
                     mini_panel = getattr(rec_win, 'mini_panel', None)
                     if mini_panel and mini_panel.isVisible() and mini_panel.geometry().contains(global_pos):
-                         mini_panel.raise_()
-                         mini_panel.activateWindow()
+                         mini_panel.raise_(); mini_panel.activateWindow()
                          return True
 
-                    # C) Kamera Penceresi (rec_win içinde tanımlı)
                     cam_widget = getattr(rec_win, 'camera_widget', None)
                     if cam_widget and cam_widget.isVisible() and cam_widget.geometry().contains(global_pos):
-                        cam_widget.raise_()
-                        cam_widget.activateWindow()
+                        cam_widget.raise_(); cam_widget.activateWindow()
                         return True
         return False
 
     def force_focus(self):
-        # Eğer mouse UI üzerindeyse focus'u zorla overlay'e çekme
-        # Bu sayede UI elemanlarına (input, combo box) yazı yazılabilir.
         pos = self.mapFromGlobal(QCursor.pos())
-        if self.is_mouse_on_ui(pos):
-            return
-
+        if self.is_mouse_on_ui(pos): return
         if self.drawing_mode != "move":
             self.activateWindow()
             self.setFocus()
@@ -120,7 +128,6 @@ class DrawingOverlay(QMainWindow):
         elif check_hotkey("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
         elif check_hotkey("color_picker"): self.toolbar.select_color() if self.toolbar else None
 
-    # Screenshot
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
         self.drawing = False
@@ -152,15 +159,12 @@ class DrawingOverlay(QMainWindow):
         if self.toolbar: self.toolbar.show()
         self.force_focus()
 
-    # Mouse Events
     def mousePressEvent(self, event):
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton: self.select_start = event.pos(); self.select_end = event.pos(); self.update()
             return 
-
-        # [GÜNCELLENDİ] UI kontrolü artık recorder pencerelerini de tanıyor
-        if self.is_mouse_on_ui(event.pos()): 
-            return 
+        
+        if self.is_mouse_on_ui(event.pos()): return 
 
         child = self.childAt(event.pos())
         if child: return 
@@ -196,6 +200,7 @@ class DrawingOverlay(QMainWindow):
                 else: self._finalize_screenshot(selection_rect)
             return 
         if not self.drawing: return
+        
         hist = self.board_history if self.whiteboard_mode else self.desktop_history
         color_to_save = self.current_color
         if self.drawing_mode == "eraser": color_to_save = Qt.white if self.whiteboard_mode else Qt.transparent
@@ -205,8 +210,9 @@ class DrawingOverlay(QMainWindow):
         elif self.drawing_mode in ["line", "rect", "ellipse"]:
             hist.append({'type': 'shape', 'shape': self.drawing_mode, 'start': self.start_point, 'end': event.pos(), 'color': QColor(self.current_color), 'width': self.brush_size}); self.redraw_canvas()
         self.drawing = False; self.update()
+        
+        self.bring_ui_to_front()
 
-    # Yardımcı Fonksiyonlar
     def open_image_loader(self):
         path, _ = QFileDialog.getOpenFileName(self, "Görsel", "", "Resim (*.png *.jpg)")
         if path:
@@ -263,15 +269,7 @@ class DrawingOverlay(QMainWindow):
                 elif item['shape']=='ellipse': p.drawEllipse(QRect(item['start'], item['end']).normalized())
         p.end(); self.update()
         
-        # [GÜNCELLENDİ] Beyaz tahta modu değiştiğinde pencereleri yukarı taşı
-        if self.toolbar:
-            drawer = getattr(self.toolbar, 'drawer', None)
-            if drawer:
-                rec_win = getattr(drawer, 'recorder_window', None)
-                if rec_win:
-                    if rec_win.isVisible(): rec_win.raise_()
-                    if rec_win.mini_panel.isVisible(): rec_win.mini_panel.raise_()
-                    if rec_win.camera_widget.isVisible(): rec_win.camera_widget.raise_()
+        self.bring_ui_to_front()
 
     def show_toast(self, m): self.toast = ModernNotification(m, self); self.toast.show_animated()
     
@@ -298,3 +296,6 @@ class DrawingOverlay(QMainWindow):
             if self.drawing_mode=="line": p.drawLine(self.start_point, self.last_point)
             elif self.drawing_mode=="rect": p.drawRect(QRect(self.start_point, self.last_point).normalized())
             elif self.drawing_mode=="ellipse": p.drawEllipse(QRect(self.start_point, self.last_point).normalized())
+            
+        # [DÜZELTME 2] Z-Order Garantisi: Çizim biter bitmez UI'ı öne çek (Flickering önler)
+        self.bring_ui_to_front()
