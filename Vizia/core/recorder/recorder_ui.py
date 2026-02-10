@@ -12,8 +12,6 @@ try:
     from core.recorder.camera_widget import ResizableCameraWidget
     from core.recorder.engine_wrapper import CppEngineWrapper
 except ImportError:
-    # Bu import yöntemi artık main.py üzerinden çalışınca sorunsuz olmalı
-    # Ama yine de yedek olarak kalsın
     from .camera_widget import ResizableCameraWidget
     from .engine_wrapper import CppEngineWrapper
 
@@ -21,6 +19,7 @@ class MiniControlPanel(QWidget):
     def __init__(self, parent_controller):
         super().__init__()
         self.controller = parent_controller
+        # [GÜNCELLENDİ] Her zaman en üstte kalmasını garanti et
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(260, 60)
@@ -79,7 +78,6 @@ class MiniControlPanel(QWidget):
         self.raise_()
         self.activateWindow()
         
-        # [FIX 5] Konumlandırma Hatası: Taskbar'ın altında kalmaması için
         geo = QApplication.primaryScreen().availableGeometry()
         self.move(geo.width() - 280, geo.height() - 80)
 
@@ -119,9 +117,6 @@ class MiniControlPanel(QWidget):
             self.old_pos = e.globalPos()
 
 class RecorderController(QWidget):
-    # SADECE DEĞİŞEN KISIM: RecorderController.__init__
-# Dosyanın geri kalanı aynı.
-
     def __init__(self, settings_manager, overlay_ref=None):
         super().__init__()
         self.settings = settings_manager
@@ -132,12 +127,11 @@ class RecorderController(QWidget):
         self.camera_widget.geometry_changed.connect(self.update_cam_config_slot)
         
         self.engine = CppEngineWrapper()
-        
-        # ARTIK SİNYAL QImage TAŞIDIĞI İÇİN camera_widget.update_frame İLE TAM UYUMLU
         self.engine.preview_signal.connect(self.camera_widget.update_frame)
         
         self.mini_panel = MiniControlPanel(self)
         
+        # [GÜNCELLENDİ] Her zaman en üstte
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(450, 560) 
@@ -230,12 +224,12 @@ class RecorderController(QWidget):
         
         self.update_cam_config_slot()
 
-    # [FIX 5] Slot Fonksiyonu
     def update_cam_config_slot(self, rect=None):
         if rect is None:
             rect = self.camera_widget.geometry()
         self.engine.update_camera_config(self.c_cam.currentIndex() == 1, rect)
 
+    # [GÜNCELLENDİ] Tek kayıt kontrolü ve başlatma
     def toggle_rec(self):
         if self.is_recording:
             if self.overlay: self.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor!")
@@ -255,8 +249,6 @@ class RecorderController(QWidget):
         
         if self.overlay: self.overlay.show_toast("🔴 Kayıt Başladı")
         
-        # [FIX 4] Ses ayarını motora göndermek için parametre eklenebilir
-        # Şimdilik sadece başlatıyoruz, engine kısmında mss fallback eklendi.
         self.engine.start(fn, 24) 
         
         self.btn_rec.setText("KAYDI DURDUR")

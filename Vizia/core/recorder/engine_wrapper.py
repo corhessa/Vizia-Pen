@@ -27,6 +27,7 @@ class CameraThread(QThread):
 
     def run(self):
         try:
+            # Windows'da DSHOW, diğerlerinde Auto
             if os.name == 'nt':
                 self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             else:
@@ -38,10 +39,10 @@ class CameraThread(QThread):
             if not self.cap or not self.cap.isOpened():
                 return
 
-            # Performans ayarı (İsteğe bağlı, desteklenmezse yoksayar)
             try:
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.cap.set(cv2.CAP_PROP_FPS, 30)
             except: pass
 
             self.running = True
@@ -49,23 +50,16 @@ class CameraThread(QThread):
                 ret, frame = self.cap.read()
                 if ret and frame is not None and frame.size > 0:
                     try:
-                        # 1. Kayıt için orijinal frame (BGR) kalsın
                         frame_bgr = frame.copy()
-
-                        # 2. Arayüz (UI) için RGBA dönüşümü (Crash önleyici)
                         frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
                         h, w, ch = frame_rgba.shape
                         bytes_per_line = ch * w
-                        
                         qt_img = QImage(frame_rgba.data, w, h, bytes_per_line, QImage.Format_RGBA8888).copy()
-                        
                         self.frame_ready.emit(qt_img, frame_bgr)
                     except: pass
                 else:
                     time.sleep(0.1)
-                
-                time.sleep(0.03) # ~30 FPS
-                
+                time.sleep(0.03) 
         except Exception as e:
             print(f"Kamera Kritik Hata: {e}")
         finally:
@@ -88,7 +82,7 @@ class CppEngineWrapper(QObject):
         
         self.dll = None
         self.cap_obj = None
-        self.mode = "PYTHON" # Varsayılan
+        self.mode = "PYTHON"
         
         self.camera_thread = None
         self.cam_geometry = None 
@@ -98,34 +92,22 @@ class CppEngineWrapper(QObject):
         self._load_cpp_engine()
 
     def _load_cpp_engine(self):
-        """ C++ DLL dosyasını yüklemeyi dener """
         try:
-            # DLL yolunu bul
             base_path = os.path.dirname(os.path.abspath(__file__))
-            # Vizia/core/recorder -> Vizia/core/cpp_engine/build/recorder.dll
             cpp_dir = os.path.join(base_path, "..", "cpp_engine")
             build_dir = os.path.join(cpp_dir, "build")
             dll_path = os.path.join(build_dir, "recorder.dll")
             
             if dll_path and os.path.exists(dll_path):
                 self.dll = ctypes.CDLL(dll_path)
-                
-                # init_engine(int w, int h) -> CapContext*
                 self.dll.init_engine.argtypes = [ctypes.c_int, ctypes.c_int]
                 self.dll.init_engine.restype = ctypes.c_void_p
-                
-                # grab_frame(CapContext* ctx, uchar* buffer, size_t size) -> bool
-                # YENİ: size_t bufferSize parametresi eklendi
                 self.dll.grab_frame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_size_t]
                 self.dll.grab_frame.restype = ctypes.c_bool
-                
-                # release_engine(CapContext* ctx) -> void
                 self.dll.release_engine.argtypes = [ctypes.c_void_p]
-                
                 self.mode = "CPP"
                 print(f"[INFO] C++ Motoru Yüklendi: {dll_path}")
             else:
-                print("[WARN] DLL bulunamadı, Python modu (mss) kullanılacak.")
                 self.mode = "PYTHON"
         except Exception as e:
             print(f"[ERROR] C++ Yükleme Hatası: {e}")
@@ -165,6 +147,7 @@ class CppEngineWrapper(QObject):
     def resume(self):
         self.pause_event.set()
 
+    # [GÜNCELLENDİ] Kayıt Döngüsü - Sabit FPS Mantığı
     def _record_loop(self, filename, target_fps):
         # Ekran Çözünürlüğü
         if os.name == 'nt':
@@ -180,57 +163,49 @@ class CppEngineWrapper(QObject):
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(filename, fourcc, target_fps, (width, height))
         
-        # --- MOTOR HAZIRLIĞI ---
+        # --- INIT ---
         c_buffer = None
         c_pointer = None
         frame_size = width * height * 4 # BGRA
         
-        # C++ Başlatma
         if self.mode == "CPP":
             try:
                 c_buffer = (ctypes.c_ubyte * frame_size)()
                 c_pointer = ctypes.cast(c_buffer, ctypes.POINTER(ctypes.c_ubyte))
                 self.cap_obj = self.dll.init_engine(width, height)
-                if not self.cap_obj:
-                    print("[ERROR] C++ init başarısız, Python'a dönülüyor.")
-                    self.mode = "PYTHON"
-            except:
-                self.mode = "PYTHON"
+                if not self.cap_obj: self.mode = "PYTHON"
+            except: self.mode = "PYTHON"
         
-        # Python (MSS) Başlatma (Yedek veya Ana Mod)
-        sct = None
-        monitor = None
+        sct = None; monitor = None
         if self.mode == "PYTHON" and mss:
             sct = mss.mss()
-            if len(sct.monitors) > 1: monitor = sct.monitors[1]
-            else: monitor = sct.monitors[0]
+            monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
 
-        start_time = time.time()
-        frames_written = 0
         last_valid_frame = np.zeros((height, width, 3), dtype=np.uint8)
 
-        print(f"[REC] Kayıt Başladı ({self.mode}): {filename}")
+        print(f"[REC] Kayıt Başladı ({self.mode}). Target FPS: {target_fps}")
+
+        # [GÜNCELLENDİ] Zamanlama Mantığı
+        # Her karenin ne kadar sürmesi gerektiğini hesapla
+        frame_duration = 1.0 / target_fps
+        next_frame_time = time.time()
 
         while not self.stop_event.is_set():
+            # Pause Kontrolü
             if not self.pause_event.is_set():
-                pause_start = time.time()
                 self.pause_event.wait()
-                start_time += (time.time() - pause_start)
+                # Pause bitince zamanlamayı resetle ki video atlamasın
+                next_frame_time = time.time()
             
+            # --- 1. Görüntü Al ---
             current_frame = None
             
-            # --- 1. GÖRÜNTÜ YAKALAMA ---
             if self.mode == "CPP" and self.cap_obj:
-                # C++ Motoru (Güvenli Çağrı)
                 if self.dll.grab_frame(self.cap_obj, c_pointer, ctypes.c_size_t(frame_size)):
                     frame_raw = np.ctypeslib.as_array(c_buffer).reshape(height, width, 4)
-                    current_frame = frame_raw[:, :, :3] # Alpha kanalını at
-                else:
-                    # C++ hata verirse frame atla veya Python'a geç (burada atlıyoruz)
-                    pass
-            
+                    current_frame = frame_raw[:, :, :3] # Alpha'yı at
+                else: pass
             elif self.mode == "PYTHON" and sct:
-                # Python Motoru (MSS)
                 try:
                     img = sct.grab(monitor)
                     frame_np = np.array(img)
@@ -244,7 +219,7 @@ class CppEngineWrapper(QObject):
             else: 
                 last_valid_frame = current_frame
 
-            # --- 2. KAMERA OVERLAY ---
+            # --- 2. Kamera Overlay ---
             self.mutex_cam.lock()
             cam_frame = self.last_cam_frame_bgr
             geo = self.cam_geometry
@@ -254,7 +229,6 @@ class CppEngineWrapper(QObject):
                 cx, cy, cw, ch = geo
                 y1, y2 = max(0, cy), min(height, cy + ch)
                 x1, x2 = max(0, cx), min(width, cx + cw)
-                
                 if y2 > y1 and x2 > x1:
                     try:
                         target_w, target_h = x2 - x1, y2 - y1
@@ -262,19 +236,20 @@ class CppEngineWrapper(QObject):
                         current_frame[y1:y2, x1:x2] = cam_resized
                     except: pass
 
+            # --- 3. Yaz ve Bekle ---
             out.write(current_frame)
             
-            # FPS Kontrolü
-            elapsed_time = time.time() - start_time
-            expected_frames = int(elapsed_time * target_fps)
-            frames_to_add = expected_frames - frames_written
+            # Bir sonraki karenin zamanını hesapla
+            next_frame_time += frame_duration
             
-            if frames_to_add > 0:
-                for _ in range(frames_to_add):
-                    out.write(current_frame)
-                    frames_written += 1
+            # Şu anki zamanla kıyasla
+            sleep_time = next_frame_time - time.time()
             
-            time.sleep(0.001) # CPU Dostu
+            # Eğer işlem hızlı bittiyse, FPS'i tutturmak için bekle
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            # Eğer işlem yavaş kaldıysa (sleep_time < 0), bekleme yapma, hemen devam et.
+            # (Bu durumda video hafif yavaşlayabilir ama kare atlamaz ve takılmaz)
 
         out.release()
         if self.mode == "CPP" and self.cap_obj:
@@ -286,6 +261,7 @@ class CppEngineWrapper(QObject):
         if self.is_recording: return
         self.is_recording = True
         self.stop_event.clear()
+        # [GÜNCELLENDİ] Thread başlatma
         self.thread = threading.Thread(target=self._record_loop, args=(save_path, fps))
         self.thread.daemon = True
         self.thread.start()

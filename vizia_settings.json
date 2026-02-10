@@ -1,11 +1,12 @@
 {
     "save_path": "C:\\Users\\mls4g\\Pictures\\Vizia Screenshots",
+    "video_save_path": "C:\\Users\\mls4g\\Videos\\Vizia Recordings",
     "keep_colors": true,
     "hotkeys": {
         "board_mode": "Space",
         "drawer": "E",
         "undo": "Backspace",
-        "clear": "S",
+        "clear": "D",
         "screenshot": "S",
         "move_mode": "V",
         "color_picker": "C",
@@ -22,6 +23,5 @@
         "#2c2c2e",
         "#2c2c2e",
         "#2c2c2e"
-    ],
-    "video_save_path": "C:/Users/mls4g/Downloads"
+    ]
 }

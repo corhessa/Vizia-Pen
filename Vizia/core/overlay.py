@@ -38,27 +38,28 @@ class DrawingOverlay(QMainWindow):
         self.select_start = QPoint()
         self.select_end = QPoint()
         
-        # Kısayolların çalışması için odak politikası
         self.setFocusPolicy(Qt.StrongFocus)
 
-    # UI Kontrolü: Mouse UI üzerindeyse çizimi engelle ve O PENCEREYİ AKTİF ET
+    # [GÜNCELLENDİ] UI Kontrolü: Kayıt pencerelerini de kapsar
     def is_mouse_on_ui(self, pos):
         if self.toolbar:
             global_pos = self.mapToGlobal(pos)
             
             # 1. Ana Toolbar
-            if self.toolbar.geometry().contains(global_pos): 
+            if self.toolbar.isVisible() and self.toolbar.geometry().contains(global_pos): 
                 self.toolbar.raise_()
                 return True
             
             # 2. Drawer (Çekmece)
-            if hasattr(self.toolbar, 'drawer') and self.toolbar.drawer.isVisible():
-                if self.toolbar.drawer.geometry().contains(global_pos): 
-                    self.toolbar.drawer.raise_()
-                    return True
-                
-                # 3. Kayıt Modülü Pencereleri (Kritik Düzeltme)
-                rec_win = getattr(self.toolbar.drawer, 'recorder_window', None)
+            drawer = getattr(self.toolbar, 'drawer', None)
+            if drawer and drawer.isVisible() and drawer.geometry().contains(global_pos): 
+                drawer.raise_()
+                return True
+            
+            # 3. Kayıt Modülü Pencereleri (Kritik Düzeltme)
+            # Drawer içindeki recorder_window referansına ulaş
+            if drawer:
+                rec_win = getattr(drawer, 'recorder_window', None)
                 if rec_win:
                     # A) Ana Kayıt Paneli
                     if rec_win.isVisible() and rec_win.geometry().contains(global_pos):
@@ -66,51 +67,51 @@ class DrawingOverlay(QMainWindow):
                         rec_win.activateWindow()
                         return True
                     
-                    # B) Mini Kontrol Paneli
-                    if hasattr(rec_win, 'mini_panel') and rec_win.mini_panel.isVisible():
-                         if rec_win.mini_panel.geometry().contains(global_pos):
-                             rec_win.mini_panel.raise_()
-                             rec_win.mini_panel.activateWindow()
-                             return True
+                    # B) Mini Kontrol Paneli (rec_win içinde tanımlı)
+                    mini_panel = getattr(rec_win, 'mini_panel', None)
+                    if mini_panel and mini_panel.isVisible() and mini_panel.geometry().contains(global_pos):
+                         mini_panel.raise_()
+                         mini_panel.activateWindow()
+                         return True
 
-                    # C) Kamera Penceresi
-                    if hasattr(rec_win, 'camera_widget') and rec_win.camera_widget.isVisible():
-                        if rec_win.camera_widget.geometry().contains(global_pos):
-                            rec_win.camera_widget.raise_()
-                            rec_win.camera_widget.activateWindow()
-                            return True
+                    # C) Kamera Penceresi (rec_win içinde tanımlı)
+                    cam_widget = getattr(rec_win, 'camera_widget', None)
+                    if cam_widget and cam_widget.isVisible() and cam_widget.geometry().contains(global_pos):
+                        cam_widget.raise_()
+                        cam_widget.activateWindow()
+                        return True
         return False
 
     def force_focus(self):
+        # Eğer mouse UI üzerindeyse focus'u zorla overlay'e çekme
+        # Bu sayede UI elemanlarına (input, combo box) yazı yazılabilir.
+        pos = self.mapFromGlobal(QCursor.pos())
+        if self.is_mouse_on_ui(pos):
+            return
+
         if self.drawing_mode != "move":
             self.activateWindow()
             self.setFocus()
 
     def update_cursor(self): pass
 
-    # Kısayol Kontrolü (Düzeltildi)
     def keyPressEvent(self, event):
         if self.is_selecting_region and event.key() == Qt.Key_Escape:
             self.cancel_screenshot(); return
             
         key = event.key()
-        # Modifiers (Ctrl, Shift, Alt) kontrolü
         modifiers = int(event.modifiers())
         
-        # Settings'den gelen stringi QKeySequence ile karşılaştıracağız
         def check_hotkey(action_name):
             hotkey_str = self.settings.get("hotkeys").get(action_name)
             if not hotkey_str: return False
-            
-            # Basılan tuş kombinasyonunu oluştur
             seq = QKeySequence(key | modifiers)
-            
-            # Ayarlardaki ile eşleşiyor mu?
             return seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch or \
                    (modifiers == 0 and key == QKeySequence(hotkey_str)[0])
 
         if key == Qt.Key_Backspace: self.undo()
-        elif check_hotkey("board_mode"): self.toolbar.toggle_board() if self.toolbar else None
+        elif check_hotkey("board_mode"): 
+            if self.toolbar: self.toolbar.toggle_board()
         elif check_hotkey("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
         elif check_hotkey("undo"): self.undo()
         elif check_hotkey("quit"): QApplication.quit()
@@ -157,7 +158,7 @@ class DrawingOverlay(QMainWindow):
             if event.button() == Qt.LeftButton: self.select_start = event.pos(); self.select_end = event.pos(); self.update()
             return 
 
-        # UI Üzerindeyse Çizme VE return diyerek olayı UI'a bırak
+        # [GÜNCELLENDİ] UI kontrolü artık recorder pencerelerini de tanıyor
         if self.is_mouse_on_ui(event.pos()): 
             return 
 
@@ -172,10 +173,7 @@ class DrawingOverlay(QMainWindow):
     def mouseMoveEvent(self, event):
         if self.is_selecting_region: self.select_end = event.pos(); self.update(); return 
         
-        # Eğer çizim başladıysa ama mouse aniden UI üzerine geldiyse çizimi durdurma,
-        # ancak yeni çizim başlamasını mousePressEvent engelliyor.
         if not self.drawing: 
-            # Hover durumunda da UI kontrolü yapalım ki cursor değişsin veya focus kaysın
             self.is_mouse_on_ui(event.pos())
             return
         
@@ -208,7 +206,7 @@ class DrawingOverlay(QMainWindow):
             hist.append({'type': 'shape', 'shape': self.drawing_mode, 'start': self.start_point, 'end': event.pos(), 'color': QColor(self.current_color), 'width': self.brush_size}); self.redraw_canvas()
         self.drawing = False; self.update()
 
-    # Yardımcı Fonksiyonlar (Aynı)
+    # Yardımcı Fonksiyonlar
     def open_image_loader(self):
         path, _ = QFileDialog.getOpenFileName(self, "Görsel", "", "Resim (*.png *.jpg)")
         if path:
@@ -264,8 +262,19 @@ class DrawingOverlay(QMainWindow):
                 elif item['shape']=='rect': p.drawRect(QRect(item['start'], item['end']).normalized())
                 elif item['shape']=='ellipse': p.drawEllipse(QRect(item['start'], item['end']).normalized())
         p.end(); self.update()
+        
+        # [GÜNCELLENDİ] Beyaz tahta modu değiştiğinde pencereleri yukarı taşı
+        if self.toolbar:
+            drawer = getattr(self.toolbar, 'drawer', None)
+            if drawer:
+                rec_win = getattr(drawer, 'recorder_window', None)
+                if rec_win:
+                    if rec_win.isVisible(): rec_win.raise_()
+                    if rec_win.mini_panel.isVisible(): rec_win.mini_panel.raise_()
+                    if rec_win.camera_widget.isVisible(): rec_win.camera_widget.raise_()
 
     def show_toast(self, m): self.toast = ModernNotification(m, self); self.toast.show_animated()
+    
     def remove_text_item(self, t):
         h = self.board_history if self.whiteboard_mode else self.desktop_history
         for i, item in enumerate(h): 
