@@ -1,4 +1,4 @@
-# plugins/Vizia-recorder/plugin.py
+# plugins/vizia-recorder/plugin.py
 import sys
 import os
 
