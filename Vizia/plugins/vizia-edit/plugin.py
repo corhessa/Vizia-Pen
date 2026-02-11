@@ -32,3 +32,7 @@ class ViziaPlugin:
         
         self.editor = ViziaEditApp(overlay)
         self.editor.show()
+        
+        # Pencereyi plugin window manager'a kaydet
+        if hasattr(overlay, 'plugin_windows'):
+            overlay.plugin_windows.register(self.editor)
