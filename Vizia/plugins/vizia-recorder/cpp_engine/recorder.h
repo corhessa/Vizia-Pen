@@ -1,4 +1,4 @@
-// Vizia/core/cpp_engine/recorder.h
+// Vizia/plugins/vizia-recorder/cpp_engine/recorder.h
 
 #ifndef RECORDER_H
 #define RECORDER_H

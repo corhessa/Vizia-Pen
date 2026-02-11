@@ -1,4 +1,4 @@
-# Vizia/core/recorder/recorder_ui.py
+# Vizia/plugins/vizia-recorder/recorder_ui.py
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
                              QComboBox, QFrame, QApplication, QFileDialog, QGraphicsDropShadowEffect, QListView)
