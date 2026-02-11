@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vizia Studio Pro - 3D Editör</title>
+    
+    <!-- Galacean Engine CDN -->
+    <script src="js/galacean.js"></script>
+    
+    <!-- Monaco Editor CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    <script>
+        if (typeof require !== 'undefined') {
+            require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+        }
+    </script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        /* Main Layout */
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        /* Toolbar */
+        #toolbar {
+            background: #2d2d30;
+            border-bottom: 1px solid #3f3f46;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            height: 48px;
+            flex-shrink: 0;
+        }
+        
+        .toolbar-group {
+            display: flex;
+            gap: 4px;
+            padding: 0 8px;
+            border-right: 1px solid #3f3f46;
+        }
+        
+        .toolbar-group:last-child {
+            border-right: none;
+        }
+        
+        .toolbar-btn, .tool-btn {
+            background: #3f3f46;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            padding: 8px 14px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .toolbar-btn:hover, .tool-btn:hover {
+            background: #505050;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        }
+        
+        .toolbar-btn:active, .tool-btn:active {
+            transform: translateY(0);
+        }
+        
+        .tool-btn.active {
+            background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%);
+            border-color: #0a84ff;
+            box-shadow: 0 0 10px rgba(10, 132, 255, 0.5);
+        }
+        
+        /* Main Content Area */
+        #main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* Left Panel - Hierarchy */
+        #hierarchy-panel {
+            width: 250px;
+            background: #252526;
+            border-right: 1px solid #3f3f46;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        .panel-header {
+            background: #2d2d30;
+            padding: 12px 12px;
+            border-bottom: 2px solid #0a84ff;
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #e0e0e0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+        
+        #hierarchy-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .hierarchy-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s;
+            font-size: 13px;
+        }
+        
+        .hierarchy-item:hover {
+            background: #2a2d2e;
+        }
+        
+        .hierarchy-item.selected {
+            background: #0a84ff;
+            color: white;
+        }
+        
+        /* Viewport Panel */
+        #viewport-panel {
+            flex: 1;
+            background: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        
+        #viewport-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        /* Right Panel - Inspector */
+        #inspector-panel {
+            width: 300px;
+            background: #252526;
+            border-left: 1px solid #3f3f46;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        #inspector-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+        
+        .inspector-empty {
+            color: #888;
+            text-align: center;
+            padding: 40px 20px;
+            font-size: 13px;
+        }
+        
+        .inspector-section {
+            background: #2d2d30;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+        
+        .inspector-section-header {
+            background: #333337;
+            padding: 10px 12px;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .inspector-label {
+            display: block;
+            color: #ccc;
+            font-size: 12px;
+            margin-bottom: 6px;
+            padding: 0 12px;
+            padding-top: 8px;
+        }
+        
+        .inspector-input {
+            width: calc(100% - 24px);
+            background: #1e1e1e;
+            border: 1px solid #3f3f46;
+            color: #e0e0e0;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            margin: 0 12px 12px 12px;
+        }
+        
+        .inspector-vector {
+            padding: 0 12px 12px 12px;
+        }
+        
+        .inspector-vector-inputs {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .inspector-input-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .axis-label {
+            color: #888;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .inspector-number {
+            width: 100%;
+            margin: 0;
+        }
+        
+        /* Bottom Panel */
+        #bottom-panel {
+            height: 250px;
+            background: #252526;
+            border-top: 1px solid #3f3f46;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        .bottom-tabs {
+            display: flex;
+            background: #2d2d30;
+            border-bottom: 1px solid #3f3f46;
+        }
+        
+        .bottom-tab-btn {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .bottom-tab-btn:hover {
+            color: #e0e0e0;
+            background: rgba(255,255,255,0.05);
+        }
+        
+        .bottom-tab-btn.active {
+            color: #0a84ff;
+            border-bottom-color: #0a84ff;
+            background: rgba(10, 132, 255, 0.1);
+        }
+        
+        .bottom-tab-content {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .bottom-tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Console Tab */
+        .console-controls {
+            padding: 8px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3f3f46;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .console-btn {
+            background: #3f3f46;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .console-btn.active {
+            background: #0a84ff;
+            border-color: #0a84ff;
+        }
+        
+        #console-output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+        }
+        
+        .console-line {
+            padding: 2px 0;
+            border-bottom: 1px solid #2d2d30;
+        }
+        
+        .console-time {
+            color: #888;
+            margin-right: 8px;
+        }
+        
+        .console-log {
+            color: #e0e0e0;
+        }
+        
+        .console-warn {
+            color: #ffcc00;
+        }
+        
+        .console-error {
+            color: #ff3b30;
+        }
+        
+        /* Terminal Tab */
+        #terminal-tab {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .terminal-controls {
+            padding: 8px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3f3f46;
+            display: flex;
+            gap: 8px;
+        }
+        
+        #terminal-editor {
+            flex: 1;
+            border-bottom: 1px solid #3f3f46;
+            min-height: 0;
+        }
+        
+        #terminal-output {
+            height: 80px;
+            overflow-y: auto;
+            padding: 8px;
+            background: #1e1e1e;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+        }
+        
+        .terminal-output-line {
+            padding: 2px 0;
+        }
+        
+        .terminal-output-result {
+            color: #4ec9b0;
+        }
+        
+        .terminal-output-success {
+            color: #6a9955;
+        }
+        
+        .terminal-output-error {
+            color: #f48771;
+        }
+        
+        .terminal-fallback {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        /* Assets Tab */
+        #assets-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        
+        .asset-item {
+            padding: 10px;
+            background: #2d2d30;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .asset-item:hover {
+            background: #3f3f46;
+        }
+        
+        /* Resizers */
+        .resizer {
+            background: #3f3f46;
+            flex-shrink: 0;
+        }
+        
+        .resizer-vertical {
+            width: 4px;
+            cursor: ew-resize;
+        }
+        
+        .resizer-horizontal {
+            height: 4px;
+            cursor: ns-resize;
+        }
+        
+        /* Context Menu */
+        .context-menu {
+            background: #2d2d30;
+            border: 1px solid #3f3f46;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            min-width: 180px;
+            z-index: 10000;
+        }
+        
+        .context-menu-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        
+        .context-menu-item:hover {
+            background: #3f3f46;
+        }
+        
+        .context-menu-item:first-child {
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+        }
+        
+        .context-menu-item:last-child {
+            border-bottom-left-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }
+        
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #3f3f46;
+            border-radius: 5px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Araç Çubuğu -->
+        <div id="toolbar">
+            <div class="toolbar-group">
+                <button class="toolbar-btn" id="btn-play" title="Çalıştır">▶ Çalıştır</button>
+                <button class="toolbar-btn" id="btn-pause" title="Duraklat">⏸ Duraklat</button>
+                <button class="toolbar-btn" id="btn-stop" title="Durdur">⏹ Durdur</button>
+            </div>
+            
+            <div class="toolbar-group">
+                <button class="tool-btn active" id="btn-move" title="Taşıma Aracı (W)">🔄 Taşı</button>
+                <button class="tool-btn" id="btn-rotate" title="Döndürme Aracı (E)">🔃 Döndür</button>
+                <button class="tool-btn" id="btn-scale" title="Ölçeklendirme Aracı (R)">📏 Ölçekle</button>
+            </div>
+            
+            <div class="toolbar-group">
+                <button class="toolbar-btn" id="btn-save" title="Sahneyi Kaydet (Ctrl+S)">💾 Kaydet</button>
+            </div>
+            
+            <div style="flex: 1;"></div>
+            
+            <div style="color: #888; font-size: 12px;">
+                <span title="Tam ekran için F11'e basın">Vizia Studio Pro v1.0 | ⌨️ F11: Tam Ekran</span>
+            </div>
+        </div>
+        
+        <!-- Ana İçerik -->
+        <div id="main-content">
+            <!-- Sol Panel: Hiyerarşi -->
+            <div id="hierarchy-panel">
+                <div class="panel-header">📋 HİYERARŞİ (Sahne Nesneleri)</div>
+                <div class="panel-content">
+                    <div id="hierarchy-list">
+                        <!-- Dinamik içerik -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="resizer resizer-vertical" id="left-resizer"></div>
+            
+            <!-- Merkez: 3D Görünüm -->
+            <div id="viewport-panel">
+                <canvas id="viewport-canvas"></canvas>
+            </div>
+            
+            <div class="resizer resizer-vertical" id="right-resizer"></div>
+            
+            <!-- Sağ Panel: Özellikler -->
+            <div id="inspector-panel">
+                <div class="panel-header">🔍 ÖZELLİKLER (Nesne Ayarları)</div>
+                <div id="inspector-content">
+                    <div class="inspector-empty">Özellikleri görmek için bir nesne seçin</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="resizer resizer-horizontal" id="bottom-resizer"></div>
+        
+        <!-- Alt Panel -->
+        <div id="bottom-panel">
+            <div class="bottom-tabs">
+                <button class="bottom-tab-btn active" data-tab="console-tab" title="Sistem mesajları">📄 Konsol</button>
+                <button class="bottom-tab-btn" data-tab="terminal-tab" title="Kod editörü">💻 Terminal</button>
+                <button class="bottom-tab-btn" data-tab="assets-tab" title="Proje dosyaları">📦 Varlıklar</button>
+            </div>
+            
+            <!-- Konsol Sekmesi -->
+            <div class="bottom-tab-content active" id="console-tab">
+                <div class="console-controls">
+                    <button class="console-btn" id="btn-console-clear" title="Konsolu temizle">🗑️ Temizle</button>
+                    <button class="console-btn active" id="btn-console-log" title="Bilgi mesajları">📝 Bilgi</button>
+                    <button class="console-btn active" id="btn-console-warn" title="Uyarı mesajları">⚠️ Uyarı</button>
+                    <button class="console-btn active" id="btn-console-error" title="Hata mesajları">❌ Hata</button>
+                </div>
+                <div id="console-output"></div>
+            </div>
+            
+            <!-- Terminal Sekmesi -->
+            <div class="bottom-tab-content" id="terminal-tab">
+                <div class="terminal-controls">
+                    <button class="console-btn" id="btn-terminal-run" title="Kodu çalıştır">▶ Çalıştır</button>
+                    <button class="console-btn" id="btn-terminal-clear" title="Çıktıyı temizle">🗑️ Çıktıyı Temizle</button>
+                </div>
+                <div id="terminal-editor"></div>
+                <div id="terminal-output"></div>
+            </div>
+            
+            <!-- Varlıklar Sekmesi -->
+            <div class="bottom-tab-content" id="assets-tab">
+                <div id="assets-list">
+                    <div class="asset-item">📁 Sahneler</div>
+                    <div class="asset-item">📁 Modeller</div>
+                    <div class="asset-item">📁 Dokular</div>
+                    <div class="asset-item">📁 Materyaller</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load all JavaScript modules -->
+    <script src="js/ui.js"></script>
+    <script src="js/scene.js"></script>
+    <script src="js/toolbar.js"></script>
+    <script src="js/hierarchy.js"></script>
+    <script src="js/inspector.js"></script>
+    <script src="js/console.js"></script>
+    <script src="js/terminal.js"></script>
+    <script src="js/shortcuts.js"></script>
+    <script src="js/history.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/app.js"></script>
+    
+    <!-- Initialize Monaco if loader is available -->
+    <script>
+        if (typeof require !== 'undefined' && require.config) {
+            require(['vs/editor/editor.main'], function() {
+                console.log("Monaco Editor loaded");
+            });
+        }
+    </script>
+</body>
+</html>

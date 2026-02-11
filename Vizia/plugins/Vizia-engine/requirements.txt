@@ -1,0 +1,5 @@
+# Vizia Engine Dependencies
+# PyQt5 and PyQtWebEngine must have compatible versions
+
+PyQt5==5.15.11
+PyQtWebEngine==5.15.7

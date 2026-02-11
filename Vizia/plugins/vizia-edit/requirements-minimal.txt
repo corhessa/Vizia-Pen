@@ -1,0 +1,15 @@
+# Vizia Edit - Minimal Requirements
+# Bu dosya sadece temel bağımlılıkları içerir
+# Sorun yaşıyorsanız bu dosyayı kullanın: pip install -r requirements-minimal.txt
+
+# UI Framework (Zorunlu)
+PyQt5>=5.15.0
+
+# Temel kütüphaneler
+numpy>=1.21.0
+Pillow>=9.0.0
+
+# Opsiyonel: python-mpv
+# mpv player için (kurulu değilse QMediaPlayer kullanılır)
+# Sadece linux/macOS'ta çalışır
+# python-mpv>=1.0.0

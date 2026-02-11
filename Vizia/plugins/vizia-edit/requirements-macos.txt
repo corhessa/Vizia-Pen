@@ -1,0 +1,12 @@
+# Vizia Edit - macOS Requirements
+# macOS için özel olarak test edilmiş sürümler
+
+# UI Framework
+PyQt5>=5.15.0
+
+# Temel kütüphaneler
+numpy>=1.21.0
+Pillow>=9.0.0
+
+# macOS için mpv (Homebrew ile kurulmalı: brew install mpv)
+python-mpv>=1.0.0

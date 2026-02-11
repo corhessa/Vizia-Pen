@@ -1,0 +1,12 @@
+# Vizia Edit - Windows Requirements
+# Windows için özel olarak test edilmiş sürümler
+
+# UI Framework
+PyQt5==5.15.10
+
+# Temel kütüphaneler  
+numpy>=1.21.0,<2.0.0
+Pillow>=9.0.0,<11.0.0
+
+# Windows'ta python-mpv genellikle sorunludur, kullanmayın
+# Uygulama QMediaPlayer ile çalışacaktır
