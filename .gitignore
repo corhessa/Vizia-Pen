@@ -178,13 +178,4 @@ cython_debug/
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
-.cursorindexingignoreVizia/plugins/vizia-edit 
-Vizia/plugins/vizia-edit/ 
-Vizia/plugins/vizia-edit/ 
-Vizia/plugins/vizia-engine/ 
-Vizia/plugins/vizia-geometry/ 
-Vizia/plugins/vizia-recorder/ 
-Vizia/plugins/vizia-edit/ 
-Vizia/plugins/vizia-engine/ 
-Vizia/plugins/vizia-geometry/ 
-Vizia/plugins/vizia-recorder/ 
+.cursorindexingignore
