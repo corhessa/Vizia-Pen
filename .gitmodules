@@ -1,0 +1,3 @@
+[submodule "plugins/vizia-edit"]
+	path = plugins/vizia-edit
+	url = https://github.com/corhessa/vizia-edit.git
