@@ -2,6 +2,7 @@
 
 import sys
 import os
+import importlib.util  # [YENİ] Dinamik yükleme için gerekli
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, 
                              QLabel, QFrame, QApplication, QGraphicsOpacityEffect)
 from PyQt5.QtGui import QPixmap, QColor, QIcon, QKeySequence
@@ -27,7 +28,7 @@ class ExtensionDrawer(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        # [GÜNCELLENDİ] 2) Pencere aktif olmasa bile Tooltip göster
+        # [GÜNCELLENDİ] Tooltip ayarı
         self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
         
         self.is_open = False
@@ -45,18 +46,12 @@ class ExtensionDrawer(QWidget):
         self.layout.setContentsMargins(5, 10, 5, 10)
         self.layout.setSpacing(8)
         
+        # --- ANA PROJEDE KALAN SABİT BUTON ---
         self.btn_folder = self.create_drawer_btn("add-folder.png", "Görsel Yükle", self.action_load_image)
         self.layout.addWidget(self.btn_folder)
         
-        self.btn_geometry = self.create_drawer_btn("geometry.png", "Geometri Araçları", self.action_geometry)
-        self.layout.addWidget(self.btn_geometry)
-
-        # [GÜNCELLENDİ] 3) Yazı temizlendi: "Ekran Kaydı"
-        self.btn_record = self.create_drawer_btn("record.png", "Ekran Kaydı", self.action_open_recorder)
-        self.layout.addWidget(self.btn_record)
-
-        self.btn_engine = self.create_drawer_btn("game.png", "Vizia Engine (3D Lab)", self.action_open_engine)
-        self.layout.addWidget(self.btn_engine)
+        # [YENİ] Dinamik Eklentileri Yükle
+        self.load_plugins()
         
         self.layout.addStretch()
         
@@ -64,8 +59,6 @@ class ExtensionDrawer(QWidget):
         self.anim.setEasingCurve(QEasingCurve.OutExpo)
         self.anim.setDuration(300)
         
-        self.recorder_window = None
-
     def keyPressEvent(self, event):
         key = event.key()
         overlay = self.toolbar_ref.overlay
@@ -84,16 +77,28 @@ class ExtensionDrawer(QWidget):
                     return 
         super().keyPressEvent(event)
 
-    def create_drawer_btn(self, icon_name, tooltip, func):
+    # [GÜNCELLENDİ] Hem Asset hem de Plugin klasöründen ikon kabul eder
+    def create_drawer_btn(self, icon_path_or_name, tooltip, func):
         btn = QPushButton()
-        icon_path = resource_path(f"Vizia/Assets/{icon_name}")
-        if os.path.exists(icon_path):
-            btn.setIcon(QIcon(icon_path)); btn.setIconSize(QSize(24, 24))
+        
+        # 1. Önce eklentiden gelen tam yol mu diye kontrol et
+        if os.path.exists(icon_path_or_name):
+            final_path = icon_path_or_name
         else:
-            text = "R" if "Kaydı" in tooltip else tooltip[0]
-            btn.setText(text); btn.setStyleSheet("color: white; font-weight: bold;")
+            # 2. Değilse, ana projenin Assets klasöründe ara
+            final_path = resource_path(f"Vizia/Assets/{icon_path_or_name}")
+
+        if os.path.exists(final_path):
+            btn.setIcon(QIcon(final_path))
+            btn.setIconSize(QSize(24, 24))
+        else:
+            # İkon yoksa baş harfi göster
+            text = tooltip[0] if tooltip else "?"
+            btn.setText(text)
+            btn.setStyleSheet("color: white; font-weight: bold;")
             
-        btn.setFixedSize(40, 40); btn.setToolTip(tooltip)
+        btn.setFixedSize(40, 40)
+        btn.setToolTip(tooltip)
         btn.setFocusPolicy(Qt.NoFocus)
         btn.clicked.connect(lambda: self.handle_click_sequence(func))
         return btn
@@ -102,79 +107,57 @@ class ExtensionDrawer(QWidget):
         if func: func()
         self.raise_()
 
+    # [YENİ] Eklenti Yükleme Mantığı
+    def load_plugins(self):
+        # Bu dosya: Vizia/core/toolbar.py
+        # Plugins klasörü: Vizia/plugins (Main.py ile aynı seviyede olması için '../plugins')
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Önce 'core'un yanındaki 'plugins' klasörüne bak (Vizia/plugins)
+        plugins_dir = os.path.abspath(os.path.join(current_dir, "../plugins"))
+        
+        # Eğer orada yoksa bir üst dizine bak (Proje kökü)
+        if not os.path.exists(plugins_dir):
+            plugins_dir = os.path.abspath(os.path.join(current_dir, "../../plugins"))
+
+        if not os.path.exists(plugins_dir):
+            print(f"Plugins klasörü bulunamadı: {plugins_dir}")
+            return
+
+        # Klasörleri gez
+        for folder_name in os.listdir(plugins_dir):
+            plugin_path = os.path.join(plugins_dir, folder_name)
+            plugin_file = os.path.join(plugin_path, "plugin.py")
+
+            if os.path.isdir(plugin_path) and os.path.exists(plugin_file):
+                try:
+                    # Dinamik Import
+                    spec = importlib.util.spec_from_file_location(f"plugins.{folder_name}", plugin_file)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+
+                    # Plugin Sınıfını Başlat
+                    if hasattr(module, "ViziaPlugin"):
+                        plugin_instance = module.ViziaPlugin()
+                        
+                        # İkon yolunu tam yola çevir
+                        full_icon_path = os.path.join(plugin_path, plugin_instance.icon)
+                        
+                        # Butonu Oluştur ve Ekle
+                        # (lambda p=... ile değişkeni sabitlemek önemli)
+                        btn = self.create_drawer_btn(
+                            full_icon_path, 
+                            plugin_instance.name, 
+                            lambda p=plugin_instance: p.run(self.toolbar_ref.overlay)
+                        )
+                        self.layout.addWidget(btn)
+                        print(f"Eklenti Yüklendi: {plugin_instance.name}")
+                        
+                except Exception as e:
+                    print(f"Eklenti Yükleme Hatası ({folder_name}): {e}")
+
     def action_load_image(self):
         if hasattr(self.toolbar_ref, 'overlay'): self.toolbar_ref.overlay.open_image_loader()
-
-    def action_geometry(self):
-        modes = ["pen", "line", "rect", "ellipse"]
-        current = self.toolbar_ref.overlay.drawing_mode
-        try: idx = modes.index(current); next_mode = modes[(idx + 1) % len(modes)]
-        except ValueError: next_mode = "line"
-        self.toolbar_ref.overlay.drawing_mode = next_mode
-        self.toolbar_ref.overlay.show_toast(f"Mod: {next_mode.upper()}")
-
-    def action_open_engine(self):
-        try:
-            from Vizia.core.engine.viewport import ViziaEngineItem
-            self.engine_window = ViziaEngineItem(self.toolbar_ref.overlay)
-            self.engine_window.show()
-            
-            screen_geo = QApplication.primaryScreen().geometry()
-            x = (screen_geo.width() - self.engine_window.width()) // 2
-            y = (screen_geo.height() - self.engine_window.height()) // 2
-            self.engine_window.move(x, y)
-            self.toggle()
-        except Exception as e:
-            print(f"Engine Başlatma Hatası: {e}")
-            if hasattr(self.toolbar_ref.overlay, 'show_toast'):
-                self.toolbar_ref.overlay.show_toast("Motor Yüklenemedi! (PyQtWebEngine kurulu mu?)")
-
-    # [GÜNCELLENDİ] 1) Tekil Kayıt Kontrolü
-    def action_open_recorder(self):
-        try:
-            # Modül import
-            try:
-                from core.recorder.recorder_ui import RecorderController
-            except ImportError:
-                from .recorder.recorder_ui import RecorderController
-            
-            # Eğer pencere zaten varsa durumunu kontrol et
-            if self.recorder_window is not None:
-                # Durum 1: Kayıt sürüyor
-                if self.recorder_window.is_recording:
-                    self.toolbar_ref.overlay.show_toast("⚠️ Zaten bir kayıt sürüyor!")
-                    # Mini paneli bul ve öne getir
-                    if hasattr(self.recorder_window, 'mini_panel'):
-                        self.recorder_window.mini_panel.show()
-                        self.recorder_window.mini_panel.raise_()
-                    return # Yeni pencere açma!
-
-                # Durum 2: Kayıt yok ama pencere gizli (kapatılmış) veya arkada
-                if not self.recorder_window.isVisible():
-                    self.recorder_window.show()
-                    # Ortala
-                    screen_geo = QApplication.primaryScreen().geometry()
-                    x = (screen_geo.width() - self.recorder_window.width()) // 2
-                    y = (screen_geo.height() - self.recorder_window.height()) // 2
-                    self.recorder_window.move(x, y)
-                else:
-                    self.recorder_window.raise_()
-                    self.recorder_window.activateWindow()
-            
-            else:
-                # Hiç pencere yoksa oluştur
-                self.recorder_window = RecorderController(self.toolbar_ref.overlay.settings, self.toolbar_ref.overlay)
-                self.recorder_window.show()
-                screen_geo = QApplication.primaryScreen().geometry()
-                x = (screen_geo.width() - self.recorder_window.width()) // 2
-                y = (screen_geo.height() - self.recorder_window.height()) // 2
-                self.recorder_window.move(x, y)
-            
-            self.toggle() # Çekmeceyi kapat
-        except Exception as e:
-            print(f"Recorder Hatası: {e}")
-            import traceback; traceback.print_exc()
-            self.toolbar_ref.overlay.show_toast("Recorder Modülü Hatası!")
 
     def update_position(self):
         if not self.isVisible(): return
@@ -213,7 +196,6 @@ class ModernToolbar(QWidget):
         self.custom_color_index = 0
         self.last_active_tool = "pen"
         
-        # [GÜNCELLENDİ] 2) Tooltip ayarı
         self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
         
         self.drawer = ExtensionDrawer(self)
