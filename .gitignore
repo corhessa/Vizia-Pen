@@ -180,3 +180,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignoreVizia/plugins/vizia-edit 
 Vizia/plugins/vizia-edit/ 
+Vizia/plugins/vizia-edit/ 
+Vizia/plugins/vizia-engine/ 
+Vizia/plugins/vizia-geometry/ 
+Vizia/plugins/vizia-recorder/ 

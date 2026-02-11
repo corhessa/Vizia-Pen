@@ -1,2 +1,0 @@
-# vizia-edit
-vizia-edit
