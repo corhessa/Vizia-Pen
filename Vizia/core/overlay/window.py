@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
 
 from core.settings import SettingsManager
 from core.screenshot import ScreenshotManager
+from core.plugin_window_manager import PluginWindowManager
 from .canvas import CanvasLayer
 
 # UI Widget Importları
@@ -15,6 +16,7 @@ class DrawingOverlay(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = SettingsManager()
+        self.plugin_windows = PluginWindowManager()
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -51,6 +53,7 @@ class DrawingOverlay(QMainWindow):
     def whiteboard_mode(self, value):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
+        self.plugin_windows.on_mode_changed(value)
         self.update()
 
     def redraw_canvas(self):

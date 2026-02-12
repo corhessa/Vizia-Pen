@@ -1,4 +1,4 @@
-# Vizia/core/recorder/engine_wrapper.py
+# Vizia/plugins/vizia-recorder/engine_wrapper.py
 
 import threading
 import time

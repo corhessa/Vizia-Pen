@@ -14,7 +14,7 @@ class ViziaEngineAssets:
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             
-            # Proje yapısı: Vizia-engine/engine -> (1 up) -> Vizia-engine -> web
+            # Proje yapısı: vizia-engine/engine -> (1 up) -> vizia-engine -> web
             project_root = os.path.abspath(os.path.join(current_dir, ".."))
             html_path = os.path.join(project_root, "web", "vizia_editor.html")
 
