@@ -67,7 +67,7 @@ class DrawingOverlay(QMainWindow):
         
         if hasattr(self.toolbar, 'drawer'):
             drawer = self.toolbar.drawer
-            if drawer.isVisible(): drawer.raise_()
+            if drawer and drawer.isVisible(): drawer.raise_()
         
         self.plugin_windows.bring_all_to_front()
 
@@ -84,7 +84,6 @@ class DrawingOverlay(QMainWindow):
                 drawer.raise_()
                 return True
             
-            # 3. Eklenti pencereleri
             if self.plugin_windows.is_mouse_on_any(global_pos):
                 return True
         
