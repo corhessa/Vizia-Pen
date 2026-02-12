@@ -36,6 +36,11 @@ class ViziaPlugin:
             self.toolbar = GeometryToolbox(self.canvas_overlay)
             self._position_toolbar(overlay)
             self.toolbar.show()
+            
+            # Pencereleri plugin window manager'a kaydet
+            if hasattr(overlay, 'plugin_windows'):
+                overlay.plugin_windows.register(self.canvas_overlay)
+                overlay.plugin_windows.register(self.toolbar)
         else:
             self.toolbar.activateWindow()
             self.toolbar.raise_()

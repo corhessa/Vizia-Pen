@@ -50,6 +50,10 @@ class ViziaPlugin:
                 x = (screen.width() - self.window.width()) // 2
                 y = (screen.height() - self.window.height()) // 2
                 self.window.move(x, y)
+                
+                # Pencereyi plugin window manager'a kaydet
+                if hasattr(overlay, 'plugin_windows'):
+                    overlay.plugin_windows.register(self.window)
             else:
                 self.window.raise_()
                 self.window.activateWindow()

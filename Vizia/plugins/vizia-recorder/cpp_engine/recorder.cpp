@@ -1,4 +1,4 @@
-// Vizia/core/cpp_engine/recorder.cpp
+// Vizia/plugins/vizia-recorder/cpp_engine/recorder.cpp
 
 #include "recorder.h"
 #include <iostream>

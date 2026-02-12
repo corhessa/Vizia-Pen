@@ -1,4 +1,4 @@
-# Vizia/core/recorder/camera_widget.py
+# Vizia/plugins/vizia-recorder/camera_widget.py
 
 from PyQt5.QtWidgets import QWidget, QSizeGrip
 # [FIX] QRectF eklendi (Float Rectangle)

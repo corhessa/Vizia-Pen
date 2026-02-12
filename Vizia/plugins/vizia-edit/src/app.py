@@ -52,6 +52,10 @@ class ViziaEditApp:
         if not self.is_plugin_mode:
             sys.exit(self.app.exec_())
     
+    def get_window(self):
+        """Ana pencereyi döndürür (plugin kaydı için)"""
+        return self.main_window
+    
     def close(self):
         """Uygulamayı kapatır"""
         if self.main_window:

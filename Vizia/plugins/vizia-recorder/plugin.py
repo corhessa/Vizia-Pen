@@ -1,4 +1,4 @@
-# plugins/Vizia-recorder/plugin.py
+# plugins/vizia-recorder/plugin.py
 import sys
 import os
 
@@ -60,6 +60,15 @@ class ViziaPlugin:
                 self.window.move(x, y)
             except:
                 pass
+            
+            # Pencereyi plugin window manager'a kaydet
+            if hasattr(overlay, 'plugin_windows'):
+                sub_wins = []
+                if hasattr(self.window, 'mini_panel'):
+                    sub_wins.append(self.window.mini_panel)
+                if hasattr(self.window, 'camera_widget'):
+                    sub_wins.append(self.window.camera_widget)
+                overlay.plugin_windows.register(self.window, sub_windows=sub_wins if sub_wins else None)
         else:
             self.window.raise_()
             self.window.activateWindow()

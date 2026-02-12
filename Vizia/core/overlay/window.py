@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
 
 from core.settings import SettingsManager
 from core.screenshot import ScreenshotManager
+from core.plugin_window_manager import PluginWindowManager
 from .canvas import CanvasLayer
 
 # UI Widget Importları (Dosya yolları yeni yapıya uygun)
@@ -15,6 +16,7 @@ class DrawingOverlay(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = SettingsManager()
+        self.plugin_windows = PluginWindowManager()
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -53,6 +55,7 @@ class DrawingOverlay(QMainWindow):
     def whiteboard_mode(self, value):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
+        self.plugin_windows.on_mode_changed(value)
         self.update()
 
     # --- [UYUMLULUK] Toolbar.py'nin çağırdığı metod ---
@@ -70,15 +73,8 @@ class DrawingOverlay(QMainWindow):
         if hasattr(self.toolbar, 'drawer'):
             drawer = self.toolbar.drawer
             if drawer.isVisible(): drawer.raise_()
-            
-            # Recorder Pencerelerini öne getir
-            rec_win = getattr(drawer, 'recorder_window', None)
-            if rec_win:
-                if rec_win.isVisible(): rec_win.raise_()
-                if hasattr(rec_win, 'mini_panel') and rec_win.mini_panel.isVisible():
-                    rec_win.mini_panel.raise_()
-                if hasattr(rec_win, 'camera_widget') and rec_win.camera_widget.isVisible():
-                    rec_win.camera_widget.raise_()
+        
+        self.plugin_windows.bring_all_to_front()
 
     def is_mouse_on_ui(self, pos):
         """Farenin arayüz üzerinde olup olmadığını kontrol eder"""
@@ -96,23 +92,10 @@ class DrawingOverlay(QMainWindow):
                 drawer.raise_()
                 return True
             
-            # 3. Recorder (Mini Panel Kontrolü Dahil)
-            if drawer:
-                rec_win = getattr(drawer, 'recorder_window', None)
-                if rec_win:
-                    if rec_win.isVisible() and rec_win.geometry().contains(global_pos):
-                        rec_win.raise_(); rec_win.activateWindow()
-                        return True
-                    
-                    mini_panel = getattr(rec_win, 'mini_panel', None)
-                    if mini_panel and mini_panel.isVisible() and mini_panel.geometry().contains(global_pos):
-                         mini_panel.raise_(); mini_panel.activateWindow()
-                         return True # Tıklamayı engelleme, panele gitmesine izin ver
-
-                    cam_widget = getattr(rec_win, 'camera_widget', None)
-                    if cam_widget and cam_widget.isVisible() and cam_widget.geometry().contains(global_pos):
-                        cam_widget.raise_(); cam_widget.activateWindow()
-                        return True
+            # 3. Eklenti pencereleri
+            if self.plugin_windows.is_mouse_on_any(global_pos):
+                return True
+        
         return False
 
     def force_focus(self):
