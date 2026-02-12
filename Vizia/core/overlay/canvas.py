@@ -13,9 +13,12 @@ class CanvasLayer:
 
     def clear(self):
         self.pixmap.fill(Qt.transparent)
+        # Widgetları kapat ve bellekten sil
         for item in self.history:
             if item.get('obj'):
-                try: item['obj'].close()
+                try: 
+                    item['obj'].close()
+                    item['obj'].deleteLater()
                 except: pass
         self.history.clear()
         self.widgets.clear()
@@ -25,9 +28,12 @@ class CanvasLayer:
         if not self.history: return
         last_item = self.history.pop()
         
-        if last_item.get('type') in ['text', 'image']:
+        # 5. Madde Çözümü: Geri alırken widget (şekil) ise yok et
+        if last_item.get('type') in ['text', 'image', 'shape']:
             if last_item.get('obj'): 
-                try: last_item['obj'].close()
+                try: 
+                    last_item['obj'].close()
+                    last_item['obj'].deleteLater() # Bellekten de sil
                 except: pass
             if last_item.get('obj') in self.widgets: 
                 self.widgets.remove(last_item['obj'])
@@ -68,6 +74,7 @@ class CanvasLayer:
         })
 
     def add_shape(self, shape_type, start, end, color, width):
+        # Bu metod eski çizim şekilleri için (line, rect, ellipse - vektörel olmayan)
         self.history.append({
             'type': 'shape', 
             'shape': shape_type, 

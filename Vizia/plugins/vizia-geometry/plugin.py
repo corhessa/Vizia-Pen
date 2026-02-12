@@ -1,4 +1,3 @@
-# plugins/vizia-geometry/plugin.py
 import sys
 import os
 import traceback
@@ -9,9 +8,9 @@ if current_folder not in sys.path:
     sys.path.append(current_folder)
 
 try:
-    from toolbox import GeometryToolbox, ShapeCanvasOverlay
+    from toolbox import GeometryToolbox
+    # ShapeCanvasOverlay import etmiyoruz çünkü artık MainOverlay kullanıyoruz
 except Exception as e:
-    # Hata oluşursa log dosyasına yaz
     with open(os.path.join(current_folder, "hata_logu.txt"), "w", encoding="utf-8") as f:
         f.write(traceback.format_exc())
     raise e
@@ -21,31 +20,22 @@ class ViziaPlugin:
         self.name = "Geometri Stüdyosu"
         self.icon = "icons/geometry.png"
         self.id = "geometry_studio"
-        self.canvas_overlay = None
         self.toolbar = None
 
     def run(self, overlay):
-        """Eklentiye tıklandığında canvas overlay ve araç çubuğunu başlatır."""
+        """Eklentiye tıklandığında araç çubuğunu başlatır."""
         try:
-            if self.canvas_overlay is None or not self.canvas_overlay.isVisible():
-                # Canvas overlay'i ana pencere üzerinde oluştur
-                self.canvas_overlay = ShapeCanvasOverlay(overlay)
-                self.canvas_overlay.setGeometry(overlay.rect())
-                self.canvas_overlay.lower()  # Kalem katmanının arkasına gönder
-                self.canvas_overlay.show()
-
-                # Araç çubuğunu canvas'a bağla ve ANA OVERLAY'i parametre olarak ver
-                self.toolbar = GeometryToolbox(self.canvas_overlay, overlay)
+            if not self.toolbar:
+                # Toolbox'a doğrudan ana overlay'i veriyoruz
+                self.toolbar = GeometryToolbox(overlay)
                 self._position_toolbar(overlay)
-                self.toolbar.show()
                 
-                # Pencereleri plugin window manager'a kaydet
-                if hasattr(overlay, 'plugin_windows'):
-                    overlay.plugin_windows.register(self.canvas_overlay)
-                    overlay.plugin_windows.register(self.toolbar)
-            else:
-                self.toolbar.activateWindow()
-                self.toolbar.raise_()
+            self.toolbar.show()
+            self.toolbar.raise_()
+            
+            # Pencereleri plugin window manager'a kaydet (Z-Order için)
+            if hasattr(overlay, 'plugin_windows'):
+                overlay.plugin_windows.register(self.toolbar)
                 
         except Exception as e:
             print(f"Plugin Run Hatası: {e}")

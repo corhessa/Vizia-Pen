@@ -53,6 +53,13 @@ class DrawingOverlay(QMainWindow):
     def whiteboard_mode(self, value):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
+        
+        # 2. Madde Çözümü: Mod değişince o katmana ait olmayan widgetları gizle
+        for w in self.desktop_layer.widgets:
+            w.setVisible(not value)
+        for w in self.board_layer.widgets:
+            w.setVisible(value)
+            
         self.plugin_windows.on_mode_changed(value)
         self.update()
 
@@ -69,6 +76,7 @@ class DrawingOverlay(QMainWindow):
             drawer = self.toolbar.drawer
             if drawer and drawer.isVisible(): drawer.raise_()
         
+        # 3. Madde Çözümü: Geometri paneli vb. pencereleri öne getir
         self.plugin_windows.bring_all_to_front()
 
     def is_mouse_on_ui(self, pos):
@@ -131,6 +139,11 @@ class DrawingOverlay(QMainWindow):
                 self.update()
             return 
         
+        # 4. Madde Çözümü: UI üzerinde değilsek ve kalemdeysek, önce seçimleri temizle
+        if not self.is_mouse_on_ui(event.pos()):
+            # Eklentilere "Boşluğa tıklandı" bilgisini gönder (Geometri şekillerini seçimden çıkarır)
+            self.plugin_windows.notify_canvas_click()
+            
         if self.is_mouse_on_ui(event.pos()): return 
         if self.childAt(event.pos()): return 
 
@@ -152,18 +165,12 @@ class DrawingOverlay(QMainWindow):
         
         if self.drawing_mode in ["pen", "eraser"]:
             # ✅ KALİTELİ ÇİZİM İÇİN BEZIER EĞRİSİ (quadTo)
-            # Düz çizgi yerine kavisli yol oluşturuyoruz
             new_point = event.pos()
             control_point = self.last_point
             
-            # Orta nokta bulma mantığıyla yumuşatma
             end_point = (control_point + new_point) / 2
-            
-            # Yola kavis ekle (Görsel Önizleme İçin)
             self.current_stroke_path.quadTo(control_point, end_point)
             
-            # Anlık segment çizimi (Performans için yükü yayıyoruz)
-            # Not: draw_segment arka planda işlem yaparken, paintEvent ön planda yumuşak yolu gösterecek
             self.active_layer.draw_segment(self.last_point, new_point, self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
             
             self.last_point = new_point
@@ -182,22 +189,19 @@ class DrawingOverlay(QMainWindow):
         if not self.drawing: return
         
         if self.drawing_mode in ["pen", "eraser"]:
-            # Çizim bittiğinde kaliteli yolu geçmişe ekle
             self.active_layer.add_stroke_to_history(self.current_stroke_path, self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
         elif self.drawing_mode in ["line", "rect", "ellipse"]:
-            # Şekil çizimi
             start_pos = self.current_stroke_path.pointAtPercent(0)
             self.active_layer.add_shape(self.drawing_mode, start_pos, event.pos(), self.current_color, self.brush_size)
             
         self.drawing = False
-        self.current_stroke_path = QPainterPath() # Yolu sıfırla
+        self.current_stroke_path = QPainterPath() 
         self.update()
         self.bring_ui_to_front()
 
     def paintEvent(self, event):
         p = QPainter(self)
         
-        # ✅ ANTI-ALIASING (Kenar Yumuşatma)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.HighQualityAntialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -205,7 +209,6 @@ class DrawingOverlay(QMainWindow):
         p.fillRect(self.rect(), Qt.white if self._whiteboard_mode else QColor(0,0,0,1))
         p.drawPixmap(0, 0, self.active_layer.pixmap)
         
-        # Şekil Önizlemesi
         if self.drawing and self.drawing_mode in ["line", "rect", "ellipse"]:
             p.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             target_pos = self.mapFromGlobal(QCursor.pos())
@@ -215,7 +218,6 @@ class DrawingOverlay(QMainWindow):
             elif self.drawing_mode == "rect": p.drawRect(QRect(start_pos, target_pos).normalized())
             elif self.drawing_mode == "ellipse": p.drawEllipse(QRect(start_pos, target_pos).normalized())
 
-        # Screenshot Seçim Alanı
         if self.is_selecting_region:
             p.setBrush(QColor(0,0,0,80)); p.setPen(Qt.NoPen)
             r = self.rect(); s = QRect(self.select_start, self.select_end).normalized()
@@ -236,7 +238,6 @@ class DrawingOverlay(QMainWindow):
     def add_text(self):
         txt = ViziaTextItem(self, self._whiteboard_mode, self.current_color)
         txt.move(100,100)
-        # ✅ BELLEK TEMİZLİĞİ: deleteLater() eklendi
         txt.delete_requested.connect(lambda w: [self.active_layer.remove_widget_item(w), w.deleteLater()])
         self.active_layer.add_widget_item(txt, 'text')
 
@@ -244,7 +245,6 @@ class DrawingOverlay(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Görsel", "", "Resim (*.png *.jpg)")
         if path:
             img = ViziaImageItem(path, self._whiteboard_mode, self)
-            # ✅ BELLEK TEMİZLİĞİ: deleteLater() eklendi
             img.request_close.connect(lambda w: [self.active_layer.remove_widget_item(w), w.deleteLater()])
             img.request_stamp.connect(lambda: self.stamp_image(img))
             self.active_layer.add_widget_item(img, 'image')
@@ -263,7 +263,7 @@ class DrawingOverlay(QMainWindow):
             p.drawPixmap(pos, widget.image_container.pixmap().scaled(widget.image_container.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
             p.end()
             widget.close()
-            widget.deleteLater() # ✅ Damgaladıktan sonra bellekten sil
+            widget.deleteLater() 
             self.update()
             self.force_focus()
         except Exception as e: 

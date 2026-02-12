@@ -60,6 +60,19 @@ class PluginWindowManager:
             except (RuntimeError, AttributeError): pass
         
         return False
+        
+    def notify_canvas_click(self):
+        """
+        Overlay'e (boşluğa) tıklandığında tüm kayıtlı pencerelere bildirir.
+        Özellikle Geometri eklentisinin şekil seçimlerini kaldırması için kullanılır.
+        """
+        self._cleanup()
+        for window in list(self._windows.keys()):
+            try:
+                # Eklenti penceresinde on_canvas_click metodu varsa çağır
+                if hasattr(window, 'on_canvas_click'):
+                    window.on_canvas_click()
+            except (RuntimeError, AttributeError): pass
     
     def save_mode_state(self, plugin_id, mode, state):
         if plugin_id not in self._mode_states:
@@ -96,11 +109,9 @@ class PluginWindowManager:
                 if window is None:
                     to_remove.append(window)
                     continue
-                # Pencerenin C++ tarafında silinip silinmediğini kontrol et
                 if not hasattr(window, "isVisible"):
                     to_remove.append(window)
                     continue
-                # RuntimeError kontrolü (C++ object deleted)
                 _ = window.isVisible()
             except (RuntimeError, AttributeError):
                 to_remove.append(window)
