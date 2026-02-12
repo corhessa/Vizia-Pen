@@ -1,11 +1,12 @@
-# plugins/vizia-geometry/shapes.py
 import math
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath, QTransform, QFont
 
-
+# ---------------------------------------------------------------------------
+# Çizim Fonksiyonları (Render Motoru)
+# ---------------------------------------------------------------------------
 def draw_shape_path(painter, shape_type, rect):
-    """Verilen rect içine şekil çizer (önizleme ve ana çizim için ortak)."""
+    """Verilen rect içine şekil çizer."""
     if shape_type == "rect":
         painter.drawRoundedRect(rect, 4, 4)
     elif shape_type == "circle":
@@ -28,22 +29,22 @@ def draw_shape_path(painter, shape_type, rect):
     elif shape_type == "note":
         _draw_note_path(painter, rect)
 
-
 def _draw_grid_path(painter, rect):
     old_brush = painter.brush()
     painter.setBrush(Qt.NoBrush)
     painter.drawRect(rect)
     step = max(20, int(min(rect.width(), rect.height()) / 4))
-    x = rect.left()
+    if step < 5: step = 5 
+    
+    x = rect.left() + step
     while x < rect.right():
         painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
         x += step
-    y = rect.top()
+    y = rect.top() + step
     while y < rect.bottom():
         painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
         y += step
     painter.setBrush(old_brush)
-
 
 def _draw_star_path(painter, rect):
     cx, cy = rect.center().x(), rect.center().y()
@@ -62,34 +63,27 @@ def _draw_star_path(painter, rect):
     path.closeSubpath()
     painter.drawPath(path)
 
-
 def _draw_arrow_path(painter, rect):
-    """Ok (arrow) şekli çizer – sağa bakan ok."""
     w = rect.width()
     h = rect.height()
     shaft_h = h * 0.35
-    head_start = w * 0.55
-
+    head_start = w * 0.60
+    
     path = QPainterPath()
-    # Gövde sol üst
-    path.moveTo(rect.left(), rect.center().y() - shaft_h / 2)
-    path.lineTo(rect.left() + head_start, rect.center().y() - shaft_h / 2)
-    # Ok başı üst
+    cy = rect.center().y()
+    
+    path.moveTo(rect.left(), cy - shaft_h / 2)
+    path.lineTo(rect.left() + head_start, cy - shaft_h / 2)
     path.lineTo(rect.left() + head_start, rect.top())
-    # Ok ucu
-    path.lineTo(rect.right(), rect.center().y())
-    # Ok başı alt
+    path.lineTo(rect.right(), cy)
     path.lineTo(rect.left() + head_start, rect.bottom())
-    path.lineTo(rect.left() + head_start, rect.center().y() + shaft_h / 2)
-    # Gövde sol alt
-    path.lineTo(rect.left(), rect.center().y() + shaft_h / 2)
+    path.lineTo(rect.left() + head_start, cy + shaft_h / 2)
+    path.lineTo(rect.left(), cy + shaft_h / 2)
     path.closeSubpath()
     painter.drawPath(path)
 
-
 def _draw_note_path(painter, rect):
-    """Not kutusu çizer – köşe kıvrımlı kağıt."""
-    fold = min(rect.width(), rect.height()) * 0.18
+    fold = min(rect.width(), rect.height()) * 0.2
     path = QPainterPath()
     path.moveTo(rect.left(), rect.top())
     path.lineTo(rect.right() - fold, rect.top())
@@ -99,11 +93,11 @@ def _draw_note_path(painter, rect):
     path.closeSubpath()
     painter.drawPath(path)
 
-    # Kıvrım üçgeni
     old_brush = painter.brush()
-    fold_color = QColor(painter.brush().color())
-    fold_color.setAlpha(min(255, fold_color.alpha() + 40))
-    painter.setBrush(fold_color)
+    c = QColor(painter.brush().color())
+    c.setAlpha(min(255, c.alpha() + 50))
+    painter.setBrush(c)
+    
     fold_path = QPainterPath()
     fold_path.moveTo(rect.right() - fold, rect.top())
     fold_path.lineTo(rect.right() - fold, rect.top() + fold)
@@ -112,45 +106,46 @@ def _draw_note_path(painter, rect):
     painter.drawPath(fold_path)
     painter.setBrush(old_brush)
 
-    # Not çizgileri
-    line_pen = QPen(QColor(255, 255, 255, 60), 1)
+    pen = QPen(QColor(0,0,0, 50), 1)
     old_pen = painter.pen()
-    painter.setPen(line_pen)
-    margin = rect.width() * 0.12
-    line_y = rect.top() + fold + margin
-    while line_y < rect.bottom() - margin:
-        painter.drawLine(
-            QPointF(rect.left() + margin, line_y),
-            QPointF(rect.right() - margin, line_y),
-        )
-        line_y += max(14, rect.height() * 0.12)
+    painter.setPen(pen)
+    
+    line_spacing = max(15, rect.height() / 6)
+    y = rect.top() + fold + 10
+    while y < rect.bottom() - 10:
+        painter.drawLine(QPointF(rect.left() + 10, y), QPointF(rect.right() - 10, y))
+        y += line_spacing
     painter.setPen(old_pen)
 
-
+# ---------------------------------------------------------------------------
+# Gelişmiş Şekil Sınıfı
+# ---------------------------------------------------------------------------
 class CanvasShape:
-    """Canvas üzerinde çizilen şekil nesnesi (pencere değil)."""
-
-    HANDLE_SIZE = 10
-    ROTATION_HANDLE_DIST = 28  # Döndürme tutamağının şekilden uzaklığı (piksel)
+    """
+    Canvas üzerinde çizilen şekil. 
+    Koordinat dönüşümleri (map_to_local) içerir.
+    """
+    HANDLE_SIZE = 12 
+    ROTATION_HANDLE_DIST = 35
 
     def __init__(self, shape_type, color, x=0.0, y=0.0, w=160.0, h=160.0):
         self.shape_type = shape_type
         self.color = QColor(color)
         self.border_color = QColor(255, 255, 255, 200)
         self.stroke_width = 3
+        # Rect her zaman şeklin DÜZ (0 derece) halindeki sınırlarıdır
         self.rect = QRectF(x, y, w, h)
-        self.rotation = 0.0          # derece cinsinden döndürme
-        self.filled = True           # dolgu açık/kapalı
+        self.rotation = 0.0
+        self.filled = True
         self.selected = False
-        self.locked = False
-        self.text = ""               # not kutusu için metin
-        self._drag_offset = None
-        self._resize_handle = None
-        self._rotating = False
-        self._rot_start_angle = 0.0
+        self.text = ""
+        
+        self._drag_offset = None      
+        self._resize_handle = None    
+        self._rotating = False        
+        self._rot_start_angle = 0.0   
 
     def snapshot(self):
-        """Geri alma için şeklin kopyasını döndürür."""
         return {
             "shape_type": self.shape_type,
             "color": QColor(self.color),
@@ -162,18 +157,28 @@ class CanvasShape:
             "text": self.text,
         }
 
-    # ------ çizim ------
+    # ------ MATEMATİKSEL DÖNÜŞÜMLER ------
+    
+    def map_from_scene(self, scene_pos):
+        """Global (ekran) koordinatını, şeklin kendi (döndürülmüş) yerel koordinatına çevirir."""
+        center = self.rect.center()
+        t = QTransform()
+        t.translate(center.x(), center.y())
+        t.rotate(-self.rotation) # Tersi yönde çevir
+        t.translate(-center.x(), -center.y())
+        return t.map(scene_pos)
+
+    # ------ ÇİZİM ------
+    
     def paint(self, painter):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.save()
 
-        # Döndürme
         center = self.rect.center()
         painter.translate(center)
         painter.rotate(self.rotation)
         painter.translate(-center)
 
-        # Dolgu
         if self.filled:
             painter.setBrush(self.color)
         else:
@@ -184,159 +189,141 @@ class CanvasShape:
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
 
-        r = self.rect.adjusted(
-            self.stroke_width, self.stroke_width,
-            -self.stroke_width, -self.stroke_width,
-        )
+        inset = self.stroke_width / 2
+        r_draw = self.rect.adjusted(inset, inset, -inset, -inset)
+        
+        draw_shape_path(painter, self.shape_type, r_draw)
 
-        draw_shape_path(painter, self.shape_type, r)
-
-        # Not kutusu metin
         if self.shape_type == "note" and self.text:
-            painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
-            painter.setFont(QFont("sans-serif", 10))
-            text_rect = r.adjusted(r.width() * 0.1, r.height() * 0.25,
-                                   -r.width() * 0.1, -r.height() * 0.05)
-            painter.drawText(text_rect, Qt.TextWordWrap, self.text)
+            painter.setPen(QColor(0,0,0, 200))
+            f = QFont("Segoe UI", 10)
+            painter.setFont(f)
+            text_rect = r_draw.adjusted(10, 10, -10, -10)
+            painter.drawText(text_rect, Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop, self.text)
+
+        if self.selected:
+            sel_pen = QPen(QColor(0, 170, 255), 1, Qt.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(self.rect)
+            
+            painter.restore() 
+            painter.save()
+            painter.translate(center)
+            painter.rotate(self.rotation)
+            painter.translate(-center)
+            
+            self._draw_handles(painter)
 
         painter.restore()
 
-        if self.selected:
-            self._draw_handles(painter)
-
     def _draw_handles(self, painter):
-        """Belirgin yuvarlak köşe tutamakları + döndürme tutamağı çizer."""
         hs = self.HANDLE_SIZE
-        # Köşe tutamakları – yuvarlak, belirgin
-        for hr in self._handle_rects():
-            painter.setBrush(QColor(0, 170, 255))
-            painter.setPen(QPen(QColor(255, 255, 255), 2))
-            painter.drawEllipse(hr)
+        painter.setBrush(QColor(0, 170, 255))
+        painter.setPen(QPen(Qt.white, 2))
+        
+        for rect in self._handle_rects() + self._edge_handle_rects():
+            painter.drawEllipse(rect)
 
-        # Kenar orta tutamakları – küçük, yatay/dikey boyutlandırma
-        for er in self._edge_handle_rects():
-            painter.setBrush(QColor(0, 140, 220))
-            painter.setPen(QPen(QColor(255, 255, 255), 1.5))
-            painter.drawEllipse(er)
-
-        # Döndürme tutamağı – üstte
         rot_pos = self._rotation_handle_pos()
-        painter.setBrush(QColor(255, 165, 0))
-        painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.drawEllipse(rot_pos, hs / 2, hs / 2)
-        # Bağlantı çizgisi
-        painter.setPen(QPen(QColor(255, 165, 0, 150), 1.5, Qt.DashLine))
+        painter.setPen(QPen(QColor(255, 170, 0), 1, Qt.DashLine))
         painter.drawLine(QPointF(self.rect.center().x(), self.rect.top()), rot_pos)
+        
+        painter.setBrush(QColor(255, 170, 0))
+        painter.setPen(QPen(Qt.white, 2))
+        painter.drawEllipse(rot_pos, hs/2, hs/2)
+
+    # ------ HESAPLAMALAR ------
 
     def _handle_rects(self):
         hs = self.HANDLE_SIZE
         r = self.rect
         return [
-            QRectF(r.left() - hs / 2, r.top() - hs / 2, hs, hs),
-            QRectF(r.right() - hs / 2, r.top() - hs / 2, hs, hs),
-            QRectF(r.left() - hs / 2, r.bottom() - hs / 2, hs, hs),
-            QRectF(r.right() - hs / 2, r.bottom() - hs / 2, hs, hs),
+            QRectF(r.left() - hs/2, r.top() - hs/2, hs, hs),
+            QRectF(r.right() - hs/2, r.top() - hs/2, hs, hs),
+            QRectF(r.left() - hs/2, r.bottom() - hs/2, hs, hs),
+            QRectF(r.right() - hs/2, r.bottom() - hs/2, hs, hs),
         ]
 
     def _edge_handle_rects(self):
-        """Kenar ortası tutamakları (yatay/dikey boyutlandırma)."""
-        hs = self.HANDLE_SIZE * 0.7
+        hs = self.HANDLE_SIZE
         r = self.rect
         cx, cy = r.center().x(), r.center().y()
         return [
-            QRectF(cx - hs / 2, r.top() - hs / 2, hs, hs),       # üst orta
-            QRectF(cx - hs / 2, r.bottom() - hs / 2, hs, hs),     # alt orta
-            QRectF(r.left() - hs / 2, cy - hs / 2, hs, hs),       # sol orta
-            QRectF(r.right() - hs / 2, cy - hs / 2, hs, hs),      # sağ orta
+            QRectF(cx - hs/2, r.top() - hs/2, hs, hs),
+            QRectF(cx - hs/2, r.bottom() - hs/2, hs, hs),
+            QRectF(r.left() - hs/2, cy - hs/2, hs, hs),
+            QRectF(r.right() - hs/2, cy - hs/2, hs, hs),
         ]
 
     def _rotation_handle_pos(self):
-        return QPointF(self.rect.center().x(),
-                       self.rect.top() - self.ROTATION_HANDLE_DIST)
+        return QPointF(self.rect.center().x(), self.rect.top() - self.ROTATION_HANDLE_DIST)
 
-    # ------ isabet testi ------
-    def contains(self, point):
-        if self.rotation == 0:
-            return self.rect.contains(point)
-        # Döndürülmüş şekil için noktayı ters döndür
-        center = self.rect.center()
-        t = QTransform()
-        t.translate(center.x(), center.y())
-        t.rotate(-self.rotation)
-        t.translate(-center.x(), -center.y())
-        unrotated = t.map(point)
-        return self.rect.contains(unrotated)
+    # ------ ETKİLEŞİM ------
 
-    def handle_at(self, point):
-        # Döndürme tutamağı
+    def contains(self, global_point):
+        local_point = self.map_from_scene(global_point)
+        return self.rect.contains(local_point)
+
+    def handle_at(self, global_point):
+        local_point = self.map_from_scene(global_point)
         rot_pos = self._rotation_handle_pos()
-        if (point - rot_pos).manhattanLength() < self.HANDLE_SIZE + 6:
+        
+        if (local_point - rot_pos).manhattanLength() < self.HANDLE_SIZE * 1.5:
             return "rotate"
-        # Köşe tutamakları
-        for idx, hr in enumerate(self._handle_rects()):
-            if hr.adjusted(-5, -5, 5, 5).contains(point):
-                return idx
-        # Kenar tutamakları
-        for idx, er in enumerate(self._edge_handle_rects()):
-            if er.adjusted(-5, -5, 5, 5).contains(point):
-                return 4 + idx  # 4=üst, 5=alt, 6=sol, 7=sağ
+        for i, rect in enumerate(self._handle_rects()):
+            if rect.adjusted(-5,-5,5,5).contains(local_point):
+                return i
+        for i, rect in enumerate(self._edge_handle_rects()):
+            if rect.adjusted(-5,-5,5,5).contains(local_point):
+                return i + 4
         return None
 
-    # ------ etkileşim ------
-    def start_move(self, pos):
-        self._drag_offset = pos - self.rect.topLeft()
+    def start_move(self, global_pos):
+        self._drag_offset = global_pos - self.rect.topLeft()
 
-    def do_move(self, pos):
+    def do_move(self, global_pos):
         if self._drag_offset is not None:
-            self.rect.moveTopLeft(pos - self._drag_offset)
+            self.rect.moveTopLeft(global_pos - self._drag_offset)
 
     def end_move(self):
         self._drag_offset = None
 
-    def start_resize(self, handle_idx, pos):
+    def start_resize(self, handle_idx, global_pos):
         if handle_idx == "rotate":
             self._rotating = True
             center = self.rect.center()
             self._rot_start_angle = math.degrees(
-                math.atan2(pos.y() - center.y(), pos.x() - center.x())
+                math.atan2(global_pos.y() - center.y(), global_pos.x() - center.x())
             ) - self.rotation
         else:
             self._resize_handle = handle_idx
 
-    def do_resize(self, pos):
+    def do_resize(self, global_pos):
         if self._rotating:
             center = self.rect.center()
-            angle = math.degrees(
-                math.atan2(pos.y() - center.y(), pos.x() - center.x())
+            current_angle = math.degrees(
+                math.atan2(global_pos.y() - center.y(), global_pos.x() - center.x())
             )
-            self.rotation = angle - self._rot_start_angle
+            self.rotation = current_angle - self._rot_start_angle
             return
 
         if self._resize_handle is None:
             return
+
+        local_pos = self.map_from_scene(global_pos)
         r = self.rect
         idx = self._resize_handle
-        min_size = 30
-        if idx == 0:  # sol üst
-            r.setTopLeft(QPointF(min(pos.x(), r.right() - min_size),
-                                  min(pos.y(), r.bottom() - min_size)))
-        elif idx == 1:  # sağ üst
-            r.setTopRight(QPointF(max(pos.x(), r.left() + min_size),
-                                   min(pos.y(), r.bottom() - min_size)))
-        elif idx == 2:  # sol alt
-            r.setBottomLeft(QPointF(min(pos.x(), r.right() - min_size),
-                                     max(pos.y(), r.top() + min_size)))
-        elif idx == 3:  # sağ alt
-            r.setBottomRight(QPointF(max(pos.x(), r.left() + min_size),
-                                      max(pos.y(), r.top() + min_size)))
-        elif idx == 4:  # üst orta
-            r.setTop(min(pos.y(), r.bottom() - min_size))
-        elif idx == 5:  # alt orta
-            r.setBottom(max(pos.y(), r.top() + min_size))
-        elif idx == 6:  # sol orta
-            r.setLeft(min(pos.x(), r.right() - min_size))
-        elif idx == 7:  # sağ orta
-            r.setRight(max(pos.x(), r.left() + min_size))
+        min_size = 20
+
+        left, top, right, bottom = r.left(), r.top(), r.right(), r.bottom()
+
+        if idx in [0, 2, 6]: left = min(local_pos.x(), right - min_size)
+        if idx in [1, 3, 7]: right = max(local_pos.x(), left + min_size)
+        if idx in [0, 1, 4]: top = min(local_pos.y(), bottom - min_size)
+        if idx in [2, 3, 5]: bottom = max(local_pos.y(), top + min_size)
+
+        self.rect.setCoords(left, top, right, bottom)
 
     def end_resize(self):
         self._resize_handle = None
