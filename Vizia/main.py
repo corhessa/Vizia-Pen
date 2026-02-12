@@ -51,7 +51,7 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
 
     # Ana pencereleri başlat
-    overlay = DrawingOverlay()
+    overlay = DrawingOverlay() 
     toolbar = ModernToolbar(overlay)
 
     overlay.toolbar = toolbar

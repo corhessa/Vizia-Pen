@@ -5,8 +5,13 @@ from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath, QTransform, QFont
 # ---------------------------------------------------------------------------
 # Çizim Fonksiyonları (Render Motoru)
 # ---------------------------------------------------------------------------
-def draw_shape_path(painter, shape_type, rect):
-    """Verilen rect içine şekil çizer."""
+def draw_shape_path(painter, shape_type, rect, extra_flags=None):
+    """
+    Verilen rect içine şekil çizer.
+    *extra_flags*: Şekle özel ek durumlar (örn: çizgi yönü)
+    """
+    if extra_flags is None: extra_flags = {}
+
     if shape_type == "rect":
         painter.drawRoundedRect(rect, 4, 4)
     elif shape_type == "circle":
@@ -23,7 +28,14 @@ def draw_shape_path(painter, shape_type, rect):
     elif shape_type == "star":
         _draw_star_path(painter, rect)
     elif shape_type == "line":
-        painter.drawLine(rect.topLeft(), rect.bottomRight())
+        # DÜZELTME: Çapraz çizgi yönünü kontrol et
+        if extra_flags.get("flipped", False):
+            # Anti-diagonal (Sağ-Üst <-> Sol-Alt veya tam tersi)
+            painter.drawLine(rect.topRight(), rect.bottomLeft())
+        else:
+            # Normal (Sol-Üst <-> Sağ-Alt)
+            painter.drawLine(rect.topLeft(), rect.bottomRight())
+            
     elif shape_type == "arrow":
         _draw_arrow_path(painter, rect)
     elif shape_type == "note":
@@ -140,6 +152,9 @@ class CanvasShape:
         self.selected = False
         self.text = ""
         
+        # Çizgi yönü (True ise anti-diagonal / şeklindedir)
+        self.is_flipped = False
+        
         self._drag_offset = None      
         self._resize_handle = None    
         self._rotating = False        
@@ -155,6 +170,7 @@ class CanvasShape:
             "rotation": self.rotation,
             "filled": self.filled,
             "text": self.text,
+            "is_flipped": self.is_flipped # Kaydet
         }
 
     # ------ MATEMATİKSEL DÖNÜŞÜMLER ------
@@ -192,7 +208,9 @@ class CanvasShape:
         inset = self.stroke_width / 2
         r_draw = self.rect.adjusted(inset, inset, -inset, -inset)
         
-        draw_shape_path(painter, self.shape_type, r_draw)
+        # Flags gönder
+        flags = {"flipped": self.is_flipped}
+        draw_shape_path(painter, self.shape_type, r_draw, flags)
 
         if self.shape_type == "note" and self.text:
             painter.setPen(QColor(0,0,0, 200))
@@ -263,6 +281,11 @@ class CanvasShape:
 
     def contains(self, global_point):
         local_point = self.map_from_scene(global_point)
+        # Çizgiler için daha geniş tıklama alanı
+        if self.shape_type == "line":
+             # Basitçe rect içinde mi diye bakıyoruz ama çizgi ince olabilir.
+             # Kullanıcı kolay seçsin diye rect zaten bounding box.
+             pass 
         return self.rect.contains(local_point)
 
     def handle_at(self, global_point):

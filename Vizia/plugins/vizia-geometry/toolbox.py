@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QLabel, QSlider, QFrame, QMenu,
     QGraphicsDropShadowEffect, QGridLayout,
-    QApplication,
+    QApplication, QMessageBox
 )
 from PyQt5.QtCore import (
     Qt, QSize, QPointF, QRectF, pyqtSignal, QPoint, QMimeData,
@@ -17,182 +17,34 @@ from PyQt5.QtGui import (
     QIcon, QPainterPath, QDrag,
 )
 
-from shapes import CanvasShape, draw_shape_path
+# Shapes modülünü yükle
+try:
+    from shapes import CanvasShape, draw_shape_path
+except ImportError:
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from shapes import CanvasShape, draw_shape_path
+
+# [GÜVENLİ İMPORT] Ana projenin 'ui' klasörüne erişim sağla
+vizia_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+if vizia_root not in sys.path:
+    sys.path.insert(0, vizia_root)
+
+try:
+    from ui.widgets.color_picker import ModernColorPicker
+except ImportError:
+    ModernColorPicker = None
 
 # ---------------------------------------------------------------------------
-# GLOBAL ASSET ve AYAR YOLU BULUCU
+# GLOBAL ASSET YOLU BULUCU
 # ---------------------------------------------------------------------------
 def get_asset_path(filename):
-    """Assets klasöründen dosya yolu bulur."""
-    # Plugin klasörü: Vizia/plugins/vizia-geometry/
-    # Assets klasörü: Vizia/Assets/
-    base_dir = os.path.dirname(os.path.abspath(__file__)) # vizia-geometry
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(base_dir))) # root
-    
-    # 1. Deneme: Üst dizinlerden Assets'e git
+    base_dir = os.path.dirname(os.path.abspath(__file__)) 
     path = os.path.abspath(os.path.join(base_dir, "../../Assets", filename))
     if os.path.exists(path): return path
-    
-    # 2. Deneme: sys._MEIPASS (PyInstaller için)
     if hasattr(sys, "_MEIPASS"):
         path = os.path.join(sys._MEIPASS, "Assets", filename)
         if os.path.exists(path): return path
-        
     return None
-
-# Ortak Ayarlar Dosyası (Tüm Vizia için tek renk havuzu)
-_SETTINGS_FILE = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../vizia_settings.json"))
-
-def _load_shared_palette():
-    """Tüm uygulamayla ortak renk paletini yükler."""
-    try:
-        if os.path.exists(_SETTINGS_FILE):
-            with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("custom_colors", [])
-    except Exception:
-        pass
-    return []
-
-def _save_shared_palette(colors):
-    """Rengi ortak havuza kaydeder."""
-    data = {}
-    try:
-        if os.path.exists(_SETTINGS_FILE):
-            with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-    except Exception:
-        pass
-        
-    data["custom_colors"] = colors
-    try:
-        with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(f"Renk kaydetme hatası: {e}")
-
-# Varsayılan Renkler
-_DEFAULT_PALETTE = [
-    "#FFFFFF", "#000000", "#FF0000", "#00FF00", "#0000FF",
-    "#FFFF00", "#FF00FF", "#00FFFF", "#FF8800", "#8800FF",
-    "#FF4444", "#44FF44", "#4444FF", "#FFAA00", "#00AAFF",
-    "#AA00FF",
-]
-
-# ---------------------------------------------------------------------------
-# Shared Color Picker (Vizia Ana Toolbar ile Aynı Mantık)
-# ---------------------------------------------------------------------------
-class SharedColorPicker(QWidget):
-    color_picked = pyqtSignal(QColor)
-
-    _STYLE = """
-    QWidget#SharedColorPicker {
-        background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #353535, stop:1 #2a2a2a);
-        border: 1px solid #444; border-radius: 12px;
-    }
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("SharedColorPicker")
-        self.custom_colors = _load_shared_palette()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_ShowWithoutActivating, True) # Focus çalmaz
-        self.setStyleSheet(self._STYLE)
-        self._init_ui()
-        
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24); shadow.setOffset(0,4); shadow.setColor(QColor(0,0,0,140))
-        self.setGraphicsEffect(shadow)
-
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10,10,10,10); layout.setSpacing(6)
-
-        # Standart Renkler
-        lbl = QLabel("Standart"); lbl.setStyleSheet("color:#ccc; font-weight:bold; font-size:11px;")
-        layout.addWidget(lbl)
-        grid = QGridLayout(); grid.setSpacing(3)
-        for i, h in enumerate(_DEFAULT_PALETTE):
-            grid.addWidget(self._cbtn(h), i//8, i%8)
-        layout.addLayout(grid)
-
-        # Kayıtlı Renkler (Ortak Havuz)
-        layout.addWidget(self._sep())
-        lbl2 = QLabel("Kayıtlı Renkler"); lbl2.setStyleSheet("color:#999; font-size:10px;")
-        layout.addWidget(lbl2)
-        
-        self.custom_grid = QGridLayout(); self.custom_grid.setSpacing(3)
-        self._refresh_custom_grid()
-        layout.addLayout(self.custom_grid)
-
-        # Sliderlar
-        layout.addWidget(self._sep())
-        self.h_slider = self._slider("Ton", 0, 359, 180, "linear-gradient(90deg, red, yellow, lime, cyan, blue, magenta, red)")
-        layout.addWidget(self.h_slider)
-        self.s_slider = self._slider("Doygunluk", 0, 255, 255, "linear-gradient(90deg, gray, #00aaff)")
-        layout.addWidget(self.s_slider)
-        self.v_slider = self._slider("Parlaklık", 0, 255, 255, "linear-gradient(90deg, black, white)")
-        layout.addWidget(self.v_slider)
-
-        # Alt Butonlar
-        bot = QHBoxLayout()
-        self.preview = QLabel(); self.preview.setFixedSize(36,36)
-        self.preview.setStyleSheet("border-radius:6px; border:1px solid #666;")
-        bot.addWidget(self.preview)
-
-        btn_apply = QPushButton("Seç"); btn_apply.clicked.connect(self._apply)
-        btn_apply.setStyleSheet("background:#00aaff; color:white; border-radius:6px; font-weight:bold;")
-        bot.addWidget(btn_apply)
-
-        btn_save = QPushButton("Kaydet"); btn_save.clicked.connect(self._save)
-        btn_save.setStyleSheet("background:#444; color:white; border-radius:6px;")
-        bot.addWidget(btn_save)
-        layout.addLayout(bot)
-        
-        self._on_change()
-
-    def _slider(self, name, min_v, max_v, val, bg):
-        s = QSlider(Qt.Horizontal); s.setRange(min_v, max_v); s.setValue(val)
-        s.setFixedHeight(15)
-        s.setStyleSheet(f"QSlider::groove:horizontal {{ height:10px; border-radius:5px; background:{bg}; }} QSlider::handle:horizontal {{ background:white; width:14px; margin:-2px 0; border-radius:7px; border:2px solid #555; }}")
-        s.valueChanged.connect(self._on_change)
-        return s
-
-    def _cbtn(self, hex_c):
-        b = QPushButton(); b.setFixedSize(26,26)
-        b.setStyleSheet(f"background-color:{hex_c}; border:1px solid #555; border-radius:4px;")
-        b.clicked.connect(lambda: self.color_picked.emit(QColor(hex_c)))
-        return b
-
-    def _refresh_custom_grid(self):
-        # Temizle
-        while self.custom_grid.count():
-            item = self.custom_grid.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
-        
-        # Yeniden Doldur
-        for i, h in enumerate(self.custom_colors[:16]):
-            self.custom_grid.addWidget(self._cbtn(h), i//8, i%8)
-
-    def _sep(self):
-        f = QFrame(); f.setFrameShape(QFrame.HLine); f.setStyleSheet("background:#555;")
-        return f
-
-    def _on_change(self):
-        c = QColor.fromHsv(self.h_slider.value(), self.s_slider.value(), self.v_slider.value())
-        self.preview.setStyleSheet(f"background-color:{c.name()}; border-radius:6px; border:1px solid #666;")
-
-    def _apply(self):
-        c = QColor.fromHsv(self.h_slider.value(), self.s_slider.value(), self.v_slider.value())
-        self.color_picked.emit(c)
-
-    def _save(self):
-        c = QColor.fromHsv(self.h_slider.value(), self.s_slider.value(), self.v_slider.value())
-        hex_c = c.name()
-        if hex_c not in self.custom_colors:
-            self.custom_colors.append(hex_c)
-            _save_shared_palette(self.custom_colors)
-            self._refresh_custom_grid()
 
 # ---------------------------------------------------------------------------
 # Şekil İkonu Oluşturucu
@@ -246,7 +98,7 @@ class DraggableShapeButton(QPushButton):
             drag.exec_(Qt.CopyAction)
             
             self._drag_start = None
-            self.setChecked(False) # Sürükleyince seçimi kaldır
+            self.setChecked(False) 
             return
         super().mouseMoveEvent(event)
         
@@ -255,7 +107,7 @@ class DraggableShapeButton(QPushButton):
         super().mouseReleaseEvent(event)
 
 # ---------------------------------------------------------------------------
-# Canvas Overlay
+# [GERİ EKLENDİ] Canvas Overlay (Çizim Katmanı)
 # ---------------------------------------------------------------------------
 class ShapeCanvasOverlay(QWidget):
     shape_selected = pyqtSignal(object)
@@ -264,7 +116,7 @@ class ShapeCanvasOverlay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.shapes: list[CanvasShape] = []
+        self.shapes = []
         self._active_shape = None
         self._mode = "select"
         self._draw_type = None
@@ -310,6 +162,7 @@ class ShapeCanvasOverlay(QWidget):
             shape.rotation = s_data.get("rotation", 0.0)
             shape.filled = s_data.get("filled", True)
             shape.text = s_data.get("text", "")
+            shape.is_flipped = s_data.get("is_flipped", False) 
             self.shapes.append(shape)
         self.shape_deselected.emit()
         self.shapes_changed.emit()
@@ -342,7 +195,6 @@ class ShapeCanvasOverlay(QWidget):
 
     def active_shape(self): return self._active_shape
 
-    # Sürükle Bırak
     def dragEnterEvent(self, event):
         if event.mimeData().hasText() and event.mimeData().text().startswith("shape:"):
             event.acceptProposedAction()
@@ -358,7 +210,6 @@ class ShapeCanvasOverlay(QWidget):
             self.add_shape(shape)
             event.acceptProposedAction()
 
-    # Çizim
     def paintEvent(self, event):
         painter = QPainter(self)
         for shape in self.shapes: shape.paint(painter)
@@ -370,12 +221,19 @@ class ShapeCanvasOverlay(QWidget):
             painter.setPen(QPen(QColor(0, 170, 255, 200), 2, Qt.DashLine))
             inner = r.adjusted(2, 2, -2, -2)
             if self._draw_type and inner.width() > 5:
-                draw_shape_path(painter, self._draw_type, inner)
+                # Önizleme sırasında da çizgi yönünü hesapla
+                flags = {}
+                if self._draw_type == "line":
+                    cur = self.mapFromGlobal(QCursor.pos())
+                    dx = cur.x() - self._draw_start.x()
+                    dy = cur.y() - self._draw_start.y()
+                    if (dx * dy) < 0: flags["flipped"] = True
+
+                draw_shape_path(painter, self._draw_type, inner, flags)
             else:
                 painter.drawRect(r)
         painter.end()
 
-    # Mouse
     def mousePressEvent(self, event):
         pos = QPointF(event.pos())
         
@@ -385,28 +243,21 @@ class ShapeCanvasOverlay(QWidget):
             return
 
         if event.button() == Qt.LeftButton:
-            # 1. Önce aktif şeklin tutamaklarına bak (Resize/Rotate)
             if self._active_shape and self._active_shape.selected:
-                handle = self._active_shape.handle_at(event.pos()) # global gönder
+                handle = self._active_shape.handle_at(event.pos()) 
                 if handle is not None:
                     self._push_undo()
                     self._active_shape.start_resize(handle, event.pos())
                     return
 
-            # 2. Sonra herhangi bir şekle tıklandı mı?
             for shape in reversed(self.shapes):
-                if shape.contains(event.pos()): # global gönder
+                if shape.contains(event.pos()):
                     self._push_undo()
                     self._select(shape)
                     shape.start_move(event.pos())
                     return
 
-            # 3. Hiçbir şeye tıklanmadı -> SEÇİMİ KALDIR
             self._deselect()
-            # ÖNEMLİ: event.ignore() demiyoruz ki alttaki pencereye (kalem) geçmesin
-            # Eğer kalemle de çizmek istiyorsanız event.ignore() açabilirsiniz ama
-            # o zaman boşluğa tıklayınca deselect çalışır + nokta koyar. 
-            # Kullanıcı "kalem seçiliyken butonlara basılsın" dedi, canvas'a değil.
             return
 
         if event.button() == Qt.RightButton:
@@ -432,7 +283,6 @@ class ShapeCanvasOverlay(QWidget):
                 self.update()
                 return
 
-        # Cursor değiştirme mantığı
         cursor_set = False
         for shape in reversed(self.shapes):
             if shape.selected:
@@ -451,6 +301,14 @@ class ShapeCanvasOverlay(QWidget):
             if r.width() > 10:
                 shape = CanvasShape(self._draw_type, self._current_color, r.x(), r.y(), r.width(), r.height())
                 shape.stroke_width = self._current_stroke_width; shape.filled = self._current_filled
+                
+                # Çapraz Çizgi Mantığı
+                if self._draw_type == "line":
+                    dx = event.pos().x() - self._draw_start.x()
+                    dy = event.pos().y() - self._draw_start.y()
+                    if (dx * dy) < 0:
+                        shape.is_flipped = True
+                
                 self.add_shape(shape)
             self._draw_start = None; self._draw_rect = None
             self.update()
@@ -483,61 +341,101 @@ class ShapeCanvasOverlay(QWidget):
         act_del = menu.addAction("Sil")
         if menu.exec_(global_pos) == act_del: self.remove_shape(shape)
 
+
 # ---------------------------------------------------------------------------
-# ANA ARAÇ ÇUBUĞU
+# Stil Tanımları (CSS)
 # ---------------------------------------------------------------------------
 _TOOLBAR_STYLE = """
-QWidget#GeometryToolbar {
-    background-color: #2b2b2b; /* Vizia Dolgusu */
-    border: 1px solid #444;
+/* Ana Çerçeve Stili */
+QFrame#ContentFrame {
+    background-color: #1c1c1e; 
+    border: 1.5px solid #3a3a3c;
     border-radius: 12px;
 }
+
 QPushButton, QToolButton {
-    background-color: #3c3c3c;
-    border: 1px solid #555;
+    background-color: #2c2c2e;
+    border: 1px solid #3a3a3c;
     border-radius: 8px;
     padding: 4px;
     color: #ddd;
     font-weight: bold;
     font-size: 11px;
 }
-QPushButton:hover, QToolButton:hover { background-color: #505050; border-color: #00aaff; }
-QPushButton:pressed, QToolButton:pressed { background-color: #00aaff; color: white; }
-QPushButton:checked, QToolButton:checked { background-color: #00aaff; color: white; border-color: #0088cc; }
-QLabel { color: #aaa; font-size: 10px; background: transparent; }
-QSlider::groove:horizontal { border: 1px solid #555; height: 6px; background: #3e3e3e; border-radius: 3px; }
-QSlider::handle:horizontal { background: #00aaff; width: 14px; margin: -4px 0; border-radius: 7px; }
-QFrame#Separator { background-color: #555; max-width: 1px; margin: 4px 2px; }
+QPushButton:hover, QToolButton:hover { background-color: #3a3a40; border-color: #007aff; }
+QPushButton:pressed, QToolButton:pressed { background-color: #007aff; color: white; }
+QPushButton:checked, QToolButton:checked { background-color: #007aff; color: white; border-color: white; }
+
+QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; background: transparent; }
+
+/* SLIDER (Flat Style - Parlama Yok) */
+QSlider::groove:horizontal { 
+    background: #3a3a3c; 
+    height: 4px; 
+    border-radius: 2px; 
+}
+
+QSlider::sub-page:horizontal {
+    background: #555555; 
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal { 
+    background: #b0b0b0; 
+    border: none; 
+    width: 12px; 
+    height: 12px; 
+    margin: -4px 0; 
+    border-radius: 6px; 
+}
+
+QSlider::handle:horizontal:hover {
+    background: #ffffff; 
+}
+
+QFrame#Separator { background-color: #48484a; max-width: 1px; margin: 4px 2px; border:none; }
 """
 
 class GeometryToolbox(QWidget):
-    def __init__(self, canvas_overlay):
+    def __init__(self, canvas_overlay, main_overlay):
         super().__init__()
         self.canvas = canvas_overlay
+        self.main_overlay = main_overlay 
         self.current_color = QColor(0, 255, 255, 150)
         self._shape_buttons = {}
-        self._color_popup = None
         self._drag_pos = None
 
-        # Arayüzü Başlat
-        self.setObjectName("GeometryToolbar")
-        # Kalem modunda tıklanabilmesi için flag ayarı:
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        # WA_ShowWithoutActivating -> Focus çalmaz ama tıklamayı alır
-        self.setAttribute(Qt.WA_ShowWithoutActivating, True) 
-        self.setStyleSheet(_TOOLBAR_STYLE)
+        # [HATA DÜZELTME] Color Picker'ın çökmemesi için gerekli değişken
+        self.custom_color_index = 0 
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24); shadow.setOffset(0, 4); shadow.setColor(QColor(0,0,0,120))
-        self.setGraphicsEffect(shadow)
+        self.setObjectName("GeometryToolbar")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_TranslucentBackground) # Arka plan şeffaf
 
         self._init_ui()
+        
+        # Gölge Efekti
+        shadow = QGraphicsDropShadowEffect(self.content_frame)
+        shadow.setBlurRadius(24); shadow.setOffset(0, 4); shadow.setColor(QColor(0,0,0,120))
+        self.content_frame.setGraphicsEffect(shadow)
         
         if self.canvas:
             self.canvas.shape_selected.connect(self._on_shape_selected)
 
     def _init_ui(self):
-        main = QVBoxLayout(self); main.setContentsMargins(10, 6, 10, 6); main.setSpacing(4)
+        window_layout = QVBoxLayout(self)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+
+        # İçerik Çerçevesi (Koyu Tonlu Arka Plan)
+        self.content_frame = QFrame()
+        self.content_frame.setObjectName("ContentFrame")
+        self.content_frame.setStyleSheet(_TOOLBAR_STYLE)
+        window_layout.addWidget(self.content_frame)
+
+        main = QVBoxLayout(self.content_frame)
+        main.setContentsMargins(10, 6, 10, 6)
+        main.setSpacing(4)
         
         # --- ÜST SATIR ---
         top = QHBoxLayout(); top.setSpacing(3)
@@ -546,7 +444,7 @@ class GeometryToolbox(QWidget):
 
         shapes = [("rect","Kare"), ("circle","Daire"), ("triangle","Üçgen"), ("star","Yıldız"), ("arrow","Ok"), ("note","Not"), ("line","Çizgi")]
         for k, t in shapes:
-            btn = DraggableShapeButton(k, t) # Sürükle bırak özelliği burada
+            btn = DraggableShapeButton(k, t) 
             btn.clicked.connect(lambda c, x=k: self._on_shape_btn(x, c))
             top.addWidget(btn); self._shape_buttons[k] = btn
         
@@ -555,22 +453,22 @@ class GeometryToolbox(QWidget):
         # --- ALT SATIR ---
         bot = QHBoxLayout(); bot.setSpacing(3)
         
-        # Renk (Ortak Palet)
+        # Renk Butonu
         self.btn_color = QPushButton(); self.btn_color.setFixedSize(32, 32)
         self._update_color_button()
         self.btn_color.clicked.connect(self._toggle_color_popup)
         bot.addWidget(self.btn_color)
 
-        # Dolgu
+        # Dolgu Butonu
         self.btn_fill = QPushButton("◼"); self.btn_fill.setFixedSize(32, 32)
         self.btn_fill.setCheckable(True); self.btn_fill.setChecked(True)
         self.btn_fill.toggled.connect(lambda c: self.canvas.set_filled(c) if self.canvas else None)
         bot.addWidget(self.btn_fill)
         bot.addWidget(self._sep())
 
-        # Kalınlık (Kutu sorunu düzeltildi: Sabit genişlik + ikonik yazı)
+        # Kalınlık
         for w, l in [(1,"İnce"), (3,"Orta"), (6,"Kalın")]:
-            b = QPushButton(l); b.setFixedSize(45, 28) # Genişlik artırıldı
+            b = QPushButton(l); b.setFixedSize(45, 28)
             b.setCheckable(True); b.setFont(QFont("Arial", 9))
             if w==3: b.setChecked(True)
             b.clicked.connect(lambda c, x=w: self._on_stroke_width(x))
@@ -579,14 +477,17 @@ class GeometryToolbox(QWidget):
         
         bot.addWidget(self._sep())
 
-        # Döndürme
+        # Döndür
+        lbl_rot = QLabel("Döndür:"); lbl_rot.setStyleSheet("margin-right: 2px;")
+        bot.addWidget(lbl_rot)
+
         sl = QSlider(Qt.Horizontal); sl.setRange(0, 360); sl.setFixedWidth(70)
         sl.valueChanged.connect(self._on_rot); self.slider_rot = sl
         bot.addWidget(sl)
 
         bot.addWidget(self._sep())
 
-        # Geri Al (İkonlu)
+        # Geri Al / Sil
         undo_path = get_asset_path("undo.png")
         btn_undo = QPushButton(); btn_undo.setFixedSize(32, 32)
         if undo_path: btn_undo.setIcon(QIcon(undo_path)); btn_undo.setIconSize(QSize(20,20))
@@ -594,7 +495,6 @@ class GeometryToolbox(QWidget):
         btn_undo.clicked.connect(lambda: self.canvas.undo() if self.canvas else None)
         bot.addWidget(btn_undo)
 
-        # Sil (İkonlu)
         bin_path = get_asset_path("bin.png")
         btn_clear = QPushButton(); btn_clear.setFixedSize(32, 32)
         if bin_path: btn_clear.setIcon(QIcon(bin_path)); btn_clear.setIconSize(QSize(20,20))
@@ -603,7 +503,6 @@ class GeometryToolbox(QWidget):
         bot.addWidget(btn_clear)
 
         main.addLayout(bot)
-        self.setLayout(main)
 
     def _sep(self): f=QFrame(); f.setFrameShape(QFrame.VLine); f.setObjectName("Separator"); return f
 
@@ -621,15 +520,19 @@ class GeometryToolbox(QWidget):
         elif self.canvas: self.canvas.set_mode("select")
 
     def _toggle_color_popup(self):
-        if self._color_popup and self._color_popup.isVisible():
-            self._color_popup.close(); self._color_popup = None
+        if not self.main_overlay: return
+        if not ModernColorPicker: 
+            QMessageBox.warning(self, "Hata", "Renk seçici yüklenemedi. (Import Error)")
             return
-        self._color_popup = SharedColorPicker()
-        self._color_popup.color_picked.connect(self._on_color_picked)
-        gp = self.btn_color.mapToGlobal(QPoint(0,0))
-        self._color_popup.move(gp.x(), gp.y() - self._color_popup.height() - 10)
-        self._color_popup.show()
 
+        # Settings'den kayıtlı renkleri al
+        custom_colors = self.main_overlay.settings.get("custom_colors")
+        
+        picker = ModernColorPicker(self.current_color, custom_colors, self.main_overlay.settings, self)
+        if picker.exec_():
+            color = picker.selected_color
+            self._on_color_picked(color)
+            
     def _on_color_picked(self, c):
         self.current_color = c
         self._update_color_button()
@@ -638,10 +541,13 @@ class GeometryToolbox(QWidget):
             if self.canvas.active_shape(): 
                 self.canvas.active_shape().color = c
                 self.canvas.update()
-        if self._color_popup: self._color_popup.close(); self._color_popup = None
 
     def _update_color_button(self):
         self.btn_color.setStyleSheet(f"background-color:{self.current_color.name()}; border:2px solid #888; border-radius:8px;")
+        
+    def update_color_btn_style(self):
+        # ColorPicker bunu çağırabilir
+        self._update_color_button()
 
     def _on_stroke_width(self, w):
         for x in [1,3,6]: getattr(self, f"_stroke_btn_{x}").setChecked(x==w)
