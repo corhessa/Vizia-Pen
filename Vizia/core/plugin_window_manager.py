@@ -63,10 +63,10 @@ class PluginWindowManager:
                     try:
                         if sub_win.isVisible():
                             sub_win.raise_()
-                    except RuntimeError:
-                        pass  # Alt pencere silinmiş
-            except RuntimeError:
-                pass  # Ana pencere silinmiş
+                    except (RuntimeError, AttributeError):
+                        pass  # Alt pencere silinmiş veya QWidget değil
+            except (RuntimeError, AttributeError):
+                pass  # Ana pencere silinmiş veya QWidget değil
     
     def is_mouse_on_any(self, global_pos):
         """
@@ -95,10 +95,10 @@ class PluginWindowManager:
                             sub_win.raise_()
                             sub_win.activateWindow()
                             return True
-                    except RuntimeError:
-                        pass
-            except RuntimeError:
-                pass
+                    except (RuntimeError, AttributeError):
+                        pass  # Alt pencere silinmiş veya QWidget değil
+            except (RuntimeError, AttributeError):
+                pass  # Ana pencere silinmiş veya QWidget değil
         
         return False
     
@@ -143,8 +143,8 @@ class PluginWindowManager:
             try:
                 if hasattr(window, 'on_mode_changed'):
                     window.on_mode_changed(new_mode_is_whiteboard)
-            except RuntimeError:
-                pass
+            except (RuntimeError, AttributeError):
+                pass  # Pencere silinmiş veya geçersiz
     
     def apply_standard_flags(self, widget, accepts_focus=False):
         """
@@ -165,15 +165,15 @@ class PluginWindowManager:
     
     def _cleanup(self):
         """
-        Silinmiş (RuntimeError veren) pencereleri listeden çıkarır.
+        Silinmiş (RuntimeError veren) veya geçersiz (AttributeError veren) pencereleri listeden çıkarır.
         """
         to_remove = []
         for window in list(self._windows.keys()):
             try:
-                # Pencereyi test et
+                # Pencereyi test et - QWidget olmayan nesneleri de tespit et
                 _ = window.isVisible()
-            except RuntimeError:
-                # Pencere silinmiş
+            except (RuntimeError, AttributeError):
+                # Pencere silinmiş veya QWidget değil
                 to_remove.append(window)
         
         for window in to_remove:

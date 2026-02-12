@@ -33,6 +33,8 @@ class ViziaPlugin:
         self.editor = ViziaEditApp(overlay)
         self.editor.show()
         
-        # Pencereyi plugin window manager'a kaydet
+        # Pencereyi plugin window manager'a kaydet (actual QWidget window, not wrapper)
         if hasattr(overlay, 'plugin_windows'):
-            overlay.plugin_windows.register(self.editor)
+            window = self.editor.get_window()
+            if window:
+                overlay.plugin_windows.register(window)
