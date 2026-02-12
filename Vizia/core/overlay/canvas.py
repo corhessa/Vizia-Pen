@@ -29,7 +29,7 @@ class CanvasLayer:
         last_item = self.history.pop()
         
         # 5. Madde Çözümü: Geri alırken widget (şekil) ise yok et
-        if last_item.get('type') in ['text', 'image', 'shape']:
+        if last_item.get('type') in ['text', 'image', 'shape', 'geometry_shape']:
             if last_item.get('obj'): 
                 try: 
                     last_item['obj'].close()
@@ -76,7 +76,7 @@ class CanvasLayer:
     def add_shape(self, shape_type, start, end, color, width):
         # Bu metod eski çizim şekilleri için (line, rect, ellipse - vektörel olmayan)
         self.history.append({
-            'type': 'shape', 
+            'type': 'legacy_shape', # type adını çakışmaması için değiştirdik
             'shape': shape_type, 
             'start': start, 
             'end': end, 
@@ -103,6 +103,11 @@ class CanvasLayer:
         p.setRenderHint(QPainter.Antialiasing)
         
         for item in self.history:
+            # ÖNEMLİ DÜZELTME: Eğer item bir widget ise (obj anahtarı varsa) çizim yapma.
+            # Widgetlar zaten Qt tarafından kendi kendilerini çizerler.
+            if item.get('obj'):
+                continue
+
             if item.get('type') == 'path':
                 mode = item.get('mode')
                 if mode == 'eraser' and item['color'] == Qt.transparent:
@@ -113,7 +118,8 @@ class CanvasLayer:
                 p.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.drawPath(item['path'])
                 
-            elif item.get('type') == 'shape':
+            # Legacy Shape desteği (eski tip şekiller için)
+            elif item.get('type') == 'legacy_shape' or (item.get('type') == 'shape' and 'color' in item):
                 p.setCompositionMode(QPainter.CompositionMode_SourceOver)
                 p.setPen(QPen(item['color'], item['width']))
                 rect = QRect(item['start'], item['end']).normalized()

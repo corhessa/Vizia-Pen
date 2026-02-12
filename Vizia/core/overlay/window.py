@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog
 from PyQt5.QtGui import QPainter, QPen, QColor, QKeySequence, QCursor, QPainterPath, QRegion
-from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
+from PyQt5.QtCore import Qt, QPoint, QTimer, QRect, QMimeData
 
 from core.settings import SettingsManager
 from core.screenshot import ScreenshotManager
@@ -20,6 +20,12 @@ class DrawingOverlay(QMainWindow):
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # 1. Drag & Drop Desteğini Aç
+        self.setAcceptDrops(True)
+        # Eklentilerin drop olaylarını dinlemesi için liste
+        self.drop_handlers = []
+
         self.showFullScreen()
         
         # --- Canvas Yönetimi ---
@@ -54,7 +60,7 @@ class DrawingOverlay(QMainWindow):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
         
-        # 2. Madde Çözümü: Mod değişince o katmana ait olmayan widgetları gizle
+        # Mod değişince o katmana ait olmayan widgetları gizle
         for w in self.desktop_layer.widgets:
             w.setVisible(not value)
         for w in self.board_layer.widgets:
@@ -62,6 +68,8 @@ class DrawingOverlay(QMainWindow):
             
         self.plugin_windows.on_mode_changed(value)
         self.update()
+        # Mod değişince pencereleri tekrar öne çek
+        QTimer.singleShot(50, self.bring_ui_to_front)
 
     def redraw_canvas(self):
         self.active_layer.redraw()
@@ -76,7 +84,7 @@ class DrawingOverlay(QMainWindow):
             drawer = self.toolbar.drawer
             if drawer and drawer.isVisible(): drawer.raise_()
         
-        # 3. Madde Çözümü: Geometri paneli vb. pencereleri öne getir
+        # Geometri paneli vb. pencereleri öne getir
         self.plugin_windows.bring_all_to_front()
 
     def is_mouse_on_ui(self, pos):
@@ -102,6 +110,28 @@ class DrawingOverlay(QMainWindow):
         if not self.is_mouse_on_ui(pos) and self.drawing_mode != "move":
             self.activateWindow()
             self.setFocus()
+
+    # --- DRAG & DROP EVENTLARI ---
+    def dragEnterEvent(self, event):
+        # Kayıtlı handler'ları kontrol et
+        mime = event.mimeData()
+        accepted = False
+        for handler in self.drop_handlers:
+            if handler(mime, event.pos(), check_only=True):
+                event.acceptProposedAction()
+                accepted = True
+                break
+        
+        if not accepted:
+            event.ignore()
+
+    def dropEvent(self, event):
+        mime = event.mimeData()
+        for handler in self.drop_handlers:
+            if handler(mime, event.pos(), check_only=False):
+                event.acceptProposedAction()
+                self.force_focus() # İşlem bitince odağı geri al
+                break
 
     def keyPressEvent(self, event):
         if self.is_selecting_region and event.key() == Qt.Key_Escape:
@@ -139,7 +169,7 @@ class DrawingOverlay(QMainWindow):
                 self.update()
             return 
         
-        # 4. Madde Çözümü: UI üzerinde değilsek ve kalemdeysek, önce seçimleri temizle
+        # UI üzerinde değilsek ve kalemdeysek, önce seçimleri temizle
         if not self.is_mouse_on_ui(event.pos()):
             # Eklentilere "Boşluğa tıklandı" bilgisini gönder (Geometri şekillerini seçimden çıkarır)
             self.plugin_windows.notify_canvas_click()

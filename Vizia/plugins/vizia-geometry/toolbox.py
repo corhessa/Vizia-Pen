@@ -18,12 +18,11 @@ from PyQt5.QtGui import (
 
 # Shapes modülünü yükle
 try:
-    from shapes import GeometryShape, draw_shape_path # Güncellenen sınıfı import et
+    from shapes import GeometryShape, draw_shape_path 
 except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from shapes import GeometryShape, draw_shape_path
 
-# Ana projenin 'ui' klasörüne erişim sağla
 vizia_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 if vizia_root not in sys.path:
     sys.path.insert(0, vizia_root)
@@ -33,9 +32,8 @@ try:
 except ImportError:
     ModernColorPicker = None
 
-# ---------------------------------------------------------------------------
-# GLOBAL ASSET YOLU BULUCU (KORUNDU)
-# ---------------------------------------------------------------------------
+SHAPE_MIME_TYPE = "application/x-vizia-shape"
+
 def get_asset_path(filename):
     base_dir = os.path.dirname(os.path.abspath(__file__)) 
     path = os.path.abspath(os.path.join(base_dir, "../../Assets", filename))
@@ -45,9 +43,6 @@ def get_asset_path(filename):
         if os.path.exists(path): return path
     return None
 
-# ---------------------------------------------------------------------------
-# Şekil İkonu Oluşturucu (KORUNDU)
-# ---------------------------------------------------------------------------
 def _shape_icon(shape_type, size=28, color=None):
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -62,12 +57,14 @@ def _shape_icon(shape_type, size=28, color=None):
     return QIcon(pixmap)
 
 # ---------------------------------------------------------------------------
-# Sürükle-Bırak Butonu (KORUNDU)
+# Sürükle-Bırak Butonu (GÜNCELLENDİ: Mouse Modu Desteği)
 # ---------------------------------------------------------------------------
 class DraggableShapeButton(QPushButton):
-    def __init__(self, shape_type, tooltip, parent=None):
-        super().__init__(parent)
+    def __init__(self, shape_type, tooltip, toolbox_ref):
+        super().__init__()
         self.shape_type = shape_type
+        self.toolbox = toolbox_ref # Toolbox referansı (Overlay'e erişim için)
+        
         self.setIcon(_shape_icon(shape_type))
         self.setIconSize(QSize(24, 24))
         self.setToolTip(tooltip)
@@ -82,9 +79,22 @@ class DraggableShapeButton(QPushButton):
 
     def mouseMoveEvent(self, event):
         if (self._drag_start is not None and (event.pos() - self._drag_start).manhattanLength() > 10):
+            
+            # --- MOUSE MODU DÜZELTMESİ BAŞLANGIÇ ---
+            # Eğer overlay "Taşıma Modu"ndaysa (Input Transparent), drop kabul etmez.
+            # Sürükleme süresince geçici olarak bu modu kapatıyoruz.
+            overlay = self.toolbox.main_overlay
+            was_transparent = False
+            
+            if overlay and (overlay.windowFlags() & Qt.WindowTransparentForInput):
+                was_transparent = True
+                overlay.setWindowFlag(Qt.WindowTransparentForInput, False)
+                overlay.show() # Flag değişimi sonrası show gerekebilir
+            # ---------------------------------------
+
             drag = QDrag(self)
             mime = QMimeData()
-            mime.setText(f"shape:{self.shape_type}")
+            mime.setData(SHAPE_MIME_TYPE, self.shape_type.encode('utf-8'))
             drag.setMimeData(mime)
             
             pixmap = QPixmap(48, 48); pixmap.fill(Qt.transparent)
@@ -93,8 +103,18 @@ class DraggableShapeButton(QPushButton):
             painter.setPen(QPen(QColor(220, 220, 220), 1.5))
             draw_shape_path(painter, self.shape_type, QRectF(4, 4, 40, 40))
             painter.end()
+            
             drag.setPixmap(pixmap)
+            drag.setHotSpot(QPoint(24, 24))
+            
+            # Sürükleme işlemi (Blocking)
             drag.exec_(Qt.CopyAction)
+            
+            # --- MOUSE MODU DÜZELTMESİ BİTİŞ ---
+            if was_transparent and overlay:
+                overlay.setWindowFlag(Qt.WindowTransparentForInput, True)
+                overlay.show()
+            # -----------------------------------
             
             self._drag_start = None
             self.setChecked(False) 
@@ -106,7 +126,7 @@ class DraggableShapeButton(QPushButton):
         super().mouseReleaseEvent(event)
 
 # ---------------------------------------------------------------------------
-# Stil Tanımları (CSS) - KORUNDU
+# Toolbox Sınıfı
 # ---------------------------------------------------------------------------
 _TOOLBAR_STYLE = """
 QFrame#ContentFrame {
@@ -136,23 +156,21 @@ QFrame#Separator { background-color: #48484a; max-width: 1px; margin: 4px 2px; b
 
 class GeometryToolbox(QWidget):
     def __init__(self, main_overlay):
-        super().__init__()
-        # Artık doğrudan main_overlay ile çalışıyoruz
+        super().__init__(main_overlay, Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        
         self.main_overlay = main_overlay 
         self.current_color = QColor(0, 255, 255, 150)
         self._shape_buttons = {}
         self._drag_pos = None
-        self.active_shape_widget = None # O an seçili şekil widget'ı
-
+        self.active_shape_widget = None 
         self.custom_color_index = 0 
 
         self.setObjectName("GeometryToolbar")
-        # Goal 3: Z-Order (Hep önde)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._init_ui()
+        self._register_drop_handler()
         
         shadow = QGraphicsDropShadowEffect(self.content_frame)
         shadow.setBlurRadius(24); shadow.setOffset(0, 4); shadow.setColor(QColor(0,0,0,120))
@@ -178,7 +196,8 @@ class GeometryToolbox(QWidget):
 
         shapes = [("rect","Kare"), ("circle","Daire"), ("triangle","Üçgen"), ("star","Yıldız"), ("arrow","Ok"), ("note","Not"), ("line","Çizgi")]
         for k, t in shapes:
-            btn = DraggableShapeButton(k, t) 
+            # GÜNCELLEME: Butona 'self' (toolbox) referansı veriyoruz
+            btn = DraggableShapeButton(k, t, self) 
             btn.clicked.connect(lambda c, x=k: self._on_shape_btn(x, c))
             top.addWidget(btn); self._shape_buttons[k] = btn
         
@@ -192,7 +211,6 @@ class GeometryToolbox(QWidget):
         self.btn_color.clicked.connect(self._toggle_color_popup)
         bot.addWidget(self.btn_color)
 
-        # Goal 1: Dolgu Butonu Fix
         self.btn_fill = QPushButton("◼"); self.btn_fill.setFixedSize(32, 32)
         self.btn_fill.setCheckable(True); self.btn_fill.setChecked(True)
         self.btn_fill.toggled.connect(self._on_fill_toggled)
@@ -216,7 +234,6 @@ class GeometryToolbox(QWidget):
         bot.addWidget(sl)
         bot.addWidget(self._sep())
 
-        # Undo / Clear (Artık Main Overlay'i kontrol ediyor)
         undo_path = get_asset_path("undo.png")
         btn_undo = QPushButton(); btn_undo.setFixedSize(32, 32)
         if undo_path: btn_undo.setIcon(QIcon(undo_path)); btn_undo.setIconSize(QSize(20,20))
@@ -235,6 +252,19 @@ class GeometryToolbox(QWidget):
 
     def _sep(self): f=QFrame(); f.setFrameShape(QFrame.VLine); f.setObjectName("Separator"); return f
 
+    def _register_drop_handler(self):
+        if hasattr(self.main_overlay, 'drop_handlers'):
+            self.main_overlay.drop_handlers.append(self.handle_drop_event)
+
+    def handle_drop_event(self, mime, pos, check_only=False):
+        if mime.hasFormat(SHAPE_MIME_TYPE):
+            if check_only: return True
+            data = mime.data(SHAPE_MIME_TYPE)
+            shape_type = bytes(data).decode('utf-8')
+            self._create_shape_at_pos(shape_type, pos)
+            return True
+        return False
+
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton: self._drag_pos = e.globalPos() - self.frameGeometry().topLeft()
     def mouseMoveEvent(self, e):
@@ -243,89 +273,95 @@ class GeometryToolbox(QWidget):
     # --- İŞLEVLER ---
 
     def _on_shape_btn(self, shape_type, checked):
-        # Diğer butonları kapat
         for key, b in self._shape_buttons.items(): 
             if key != shape_type: b.setChecked(False)
-            
         if checked:
-            # Yeni Şekil Oluştur (Goal 2 & 5)
-            # Şekli main_overlay üzerinden ekliyoruz
             self._create_shape_widget(shape_type)
-            # Seçimi kaldır (Buton sadece oluşturucu olarak kalsın, basılı kalmasın)
             self._shape_buttons[shape_type].setChecked(False)
 
     def _create_shape_widget(self, shape_type):
         if not self.main_overlay: return
-        
-        # Şekil widget'ını oluştur
-        # Parent olarak overlay'i veriyoruz ama add_widget_item onu yöneticek
+        center = self.main_overlay.rect().center()
+        self._create_shape_at_pos(shape_type, center)
+
+    def _create_shape_at_pos(self, shape_type, pos):
+        if not self.main_overlay: return
+
         new_shape = GeometryShape(
             self.main_overlay, 
             shape_type, 
             self.current_color
         )
-        
-        # Dolgu durumunu uygula
         new_shape.update_fill(self.btn_fill.isChecked())
+        w, h = new_shape.width(), new_shape.height()
+        new_shape.move(pos.x() - w//2, pos.y() - h//2)
         
-        # Ekranın ortasına yerleştir
-        center = self.main_overlay.rect().center()
-        new_shape.move(center.x() - 100, center.y() - 100)
-        
-        # Goal 5: Undo sistemine dahil et (CanvasLayer'a ekle)
-        # 1. Widget olarak listeye alınıyor
-        # 2. History'ye "shape" tipinde ekleniyor
-        # 3. Layer'a (Desktop/Board) bağlı kalıyor
-        self.main_overlay.active_layer.add_widget_item(new_shape, 'shape')
+        self.main_overlay.active_layer.add_widget_item(new_shape, 'geometry_shape')
         new_shape.show()
         
-        # Sinyal Bağla: Şekle tıklanınca Toolbox bilsin
+        # GÜNCELLEME: Şekil silindiğinde referansı temizle
+        new_shape.destroyed.connect(lambda: self._on_shape_destroyed(new_shape))
         new_shape.clicked.connect(self._on_shape_clicked)
         
-        # Otomatik seç
         self._select_shape(new_shape)
 
+    # GÜNCELLEME: RuntimeError Çözümü (Güvenli Seçim)
     def _select_shape(self, shape):
-        # Önceki seçimi kaldır
         if self.active_shape_widget:
-            self.active_shape_widget.set_selected(False)
-            
+            try:
+                # Silinmiş mi kontrol et (Eğer C++ nesnesi gittiyse RuntimeError verir)
+                self.active_shape_widget.set_selected(False)
+            except RuntimeError:
+                pass # Zaten silinmiş, görmezden gel
+            except AttributeError:
+                pass
+
         self.active_shape_widget = shape
-        shape.set_selected(True)
-        
-        # UI Güncelle
-        self.slider_rot.blockSignals(True)
-        self.slider_rot.setValue(int(shape.rotation_angle) % 360)
-        self.slider_rot.blockSignals(False)
-        self.btn_fill.setChecked(shape.filled)
+        if shape:
+            try:
+                shape.set_selected(True)
+                self.slider_rot.blockSignals(True)
+                self.slider_rot.setValue(int(shape.rotation_angle) % 360)
+                self.slider_rot.blockSignals(False)
+                self.btn_fill.setChecked(shape.filled)
+            except RuntimeError:
+                self.active_shape_widget = None # Hata verirse seçimi iptal et
+
+    def _on_shape_destroyed(self, shape):
+        # Şekil bellekten silindiğinde değişkeni sıfırla
+        if self.active_shape_widget == shape:
+            self.active_shape_widget = None
 
     def _on_shape_clicked(self, shape_obj):
         self._select_shape(shape_obj)
 
     def on_canvas_click(self):
-        """Goal 4: Boşluğa tıklayınca seçim kalksın ve kalem aktif olsun"""
         if self.active_shape_widget:
-            self.active_shape_widget.set_selected(False)
+            try:
+                self.active_shape_widget.set_selected(False)
+            except RuntimeError: pass
             self.active_shape_widget = None
-        
-        # Kalem modunu garantiye al (Main overlay zaten canvas click'te bunu yapar ama burada UI resetleyebiliriz)
         for b in self._shape_buttons.values(): b.setChecked(False)
 
     def _on_fill_toggled(self, checked):
-        # Goal 1: Dolgu değişimini aktif şekle uygula
         if self.active_shape_widget:
-            self.active_shape_widget.update_fill(checked)
+            try: self.active_shape_widget.update_fill(checked)
+            except RuntimeError: pass
 
     def _on_rot(self, v):
         if self.active_shape_widget:
-            self.active_shape_widget.rotation_angle = float(v)
-            self.active_shape_widget.update()
+            try:
+                self.active_shape_widget.rotation_angle = float(v)
+                self.active_shape_widget.update()
+            except RuntimeError: pass
 
     def _on_stroke_width(self, w):
         for x in [1,3,6]: getattr(self, f"_stroke_btn_{x}").setChecked(x==w)
         if self.active_shape_widget:
-            self.active_shape_widget.stroke_width = w
-            self.active_shape_widget.update()
+            try:
+                self.active_shape_widget.stroke_width = w
+                self.active_shape_widget.update()
+            except RuntimeError: pass
 
     def _toggle_color_popup(self):
         if not self.main_overlay: return
@@ -342,8 +378,10 @@ class GeometryToolbox(QWidget):
         self.current_color = c
         self._update_color_button()
         if self.active_shape_widget:
-            self.active_shape_widget.primary_color = c
-            self.active_shape_widget.update()
+            try:
+                self.active_shape_widget.primary_color = c
+                self.active_shape_widget.update()
+            except RuntimeError: pass
 
     def _update_color_button(self):
         self.btn_color.setStyleSheet(f"background-color:{self.current_color.name()}; border:2px solid #888; border-radius:8px;")
