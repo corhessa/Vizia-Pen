@@ -6,7 +6,7 @@ from core.settings import SettingsManager
 from core.screenshot import ScreenshotManager
 from .canvas import CanvasLayer
 
-# UI Widget Importları (Dosya yolları yeni yapıya uygun)
+# UI Widget Importları
 from ui.widgets.notification import ModernNotification
 from ui.widgets.image_item import ViziaImageItem
 from ui.text_widgets import ViziaTextItem 
@@ -33,7 +33,6 @@ class DrawingOverlay(QMainWindow):
         self.brush_size = 4
         
         self.drawing = False
-        self.start_point = QPoint()
         self.last_point = QPoint()
         self.current_stroke_path = QPainterPath()
         
@@ -44,7 +43,6 @@ class DrawingOverlay(QMainWindow):
         self.toolbar = None 
         self.setFocusPolicy(Qt.StrongFocus)
 
-    # --- [UYUMLULUK] Toolbar.py'nin beklediği property ---
     @property
     def whiteboard_mode(self):
         return self._whiteboard_mode
@@ -55,14 +53,11 @@ class DrawingOverlay(QMainWindow):
         self.active_layer = self.board_layer if value else self.desktop_layer
         self.update()
 
-    # --- [UYUMLULUK] Toolbar.py'nin çağırdığı metod ---
     def redraw_canvas(self):
-        """Toolbar bu metodu çağırdığında aktif katmanı yeniden çizer"""
         self.active_layer.redraw()
         self.update()
         self.bring_ui_to_front()
 
-    # --- [DÜZELTME] Recorder ve UI Kontrolü ---
     def bring_ui_to_front(self):
         if not self.toolbar: return
         if self.toolbar.isVisible(): self.toolbar.raise_()
@@ -70,49 +65,26 @@ class DrawingOverlay(QMainWindow):
         if hasattr(self.toolbar, 'drawer'):
             drawer = self.toolbar.drawer
             if drawer.isVisible(): drawer.raise_()
-            
-            # Recorder Pencerelerini öne getir
-            rec_win = getattr(drawer, 'recorder_window', None)
-            if rec_win:
-                if rec_win.isVisible(): rec_win.raise_()
-                if hasattr(rec_win, 'mini_panel') and rec_win.mini_panel.isVisible():
-                    rec_win.mini_panel.raise_()
-                if hasattr(rec_win, 'camera_widget') and rec_win.camera_widget.isVisible():
-                    rec_win.camera_widget.raise_()
+        
+        self.plugin_windows.bring_all_to_front()
 
     def is_mouse_on_ui(self, pos):
-        """Farenin arayüz üzerinde olup olmadığını kontrol eder"""
         if self.toolbar:
             global_pos = self.mapToGlobal(pos)
             
-            # 1. Toolbar
             if self.toolbar.isVisible() and self.toolbar.geometry().contains(global_pos): 
                 self.toolbar.raise_()
                 return True
             
-            # 2. Drawer
             drawer = getattr(self.toolbar, 'drawer', None)
             if drawer and drawer.isVisible() and drawer.geometry().contains(global_pos): 
                 drawer.raise_()
                 return True
             
-            # 3. Recorder (Mini Panel Kontrolü Dahil)
-            if drawer:
-                rec_win = getattr(drawer, 'recorder_window', None)
-                if rec_win:
-                    if rec_win.isVisible() and rec_win.geometry().contains(global_pos):
-                        rec_win.raise_(); rec_win.activateWindow()
-                        return True
-                    
-                    mini_panel = getattr(rec_win, 'mini_panel', None)
-                    if mini_panel and mini_panel.isVisible() and mini_panel.geometry().contains(global_pos):
-                         mini_panel.raise_(); mini_panel.activateWindow()
-                         return True # Tıklamayı engelleme, panele gitmesine izin ver
-
-                    cam_widget = getattr(rec_win, 'camera_widget', None)
-                    if cam_widget and cam_widget.isVisible() and cam_widget.geometry().contains(global_pos):
-                        cam_widget.raise_(); cam_widget.activateWindow()
-                        return True
+            # 3. Eklenti pencereleri
+            if self.plugin_windows.is_mouse_on_any(global_pos):
+                return True
+        
         return False
 
     def force_focus(self):
@@ -128,27 +100,33 @@ class DrawingOverlay(QMainWindow):
         key = event.key()
         modifiers = int(event.modifiers())
         
-        def check_hotkey(action_name):
-            hotkey_str = self.settings.get("hotkeys").get(action_name)
-            if not hotkey_str: return False
-            seq = QKeySequence(key | modifiers)
-            return seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch or \
-                   (modifiers == 0 and key == QKeySequence(hotkey_str)[0])
+        try:
+            def check_hotkey(action_name):
+                hotkey_str = self.settings.get("hotkeys").get(action_name)
+                if not hotkey_str: return False
+                seq = QKeySequence(key | modifiers)
+                return seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch or \
+                       (modifiers == 0 and key == QKeySequence(hotkey_str)[0])
 
-        if key == Qt.Key_Backspace: self.undo()
-        elif check_hotkey("board_mode"): 
-            if self.toolbar: self.toolbar.toggle_board()
-        elif check_hotkey("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
-        elif check_hotkey("undo"): self.undo()
-        elif check_hotkey("quit"): QApplication.quit()
-        elif check_hotkey("screenshot"): self.take_screenshot()
-        elif check_hotkey("clear"): self.clear_all()
-        elif check_hotkey("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
-        elif check_hotkey("color_picker"): self.toolbar.select_color() if self.toolbar else None
+            if key == Qt.Key_Backspace: self.undo()
+            elif check_hotkey("board_mode"): 
+                if self.toolbar: self.toolbar.toggle_board()
+            elif check_hotkey("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
+            elif check_hotkey("undo"): self.undo()
+            elif check_hotkey("quit"): QApplication.quit()
+            elif check_hotkey("screenshot"): self.take_screenshot()
+            elif check_hotkey("clear"): self.clear_all()
+            elif check_hotkey("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
+            elif check_hotkey("color_picker"): self.toolbar.select_color() if self.toolbar else None
+        except Exception as e:
+            print(f"Kısayol hatası: {e}")
 
     def mousePressEvent(self, event):
         if self.is_selecting_region:
-            if event.button() == Qt.LeftButton: self.select_start = event.pos(); self.select_end = event.pos(); self.update()
+            if event.button() == Qt.LeftButton: 
+                self.select_start = event.pos()
+                self.select_end = event.pos()
+                self.update()
             return 
         
         if self.is_mouse_on_ui(event.pos()): return 
@@ -156,28 +134,45 @@ class DrawingOverlay(QMainWindow):
 
         if event.button() == Qt.LeftButton:
             self.drawing = True
-            self.start_point = event.pos(); self.last_point = event.pos()
-            self.current_stroke_path = QPainterPath(); self.current_stroke_path.moveTo(self.start_point)
+            self.last_point = event.pos()
+            self.current_stroke_path = QPainterPath()
+            self.current_stroke_path.moveTo(self.last_point)
 
     def mouseMoveEvent(self, event):
-        if self.is_selecting_region: self.select_end = event.pos(); self.update(); return 
+        if self.is_selecting_region: 
+            self.select_end = event.pos()
+            self.update()
+            return 
         
         if not self.drawing: 
             self.is_mouse_on_ui(event.pos())
             return
         
         if self.drawing_mode in ["pen", "eraser"]:
-            # CanvasLayer üzerinden anlık çizim (Eski hızında)
-            self.active_layer.draw_segment(self.last_point, event.pos(), self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
-            self.current_stroke_path.lineTo(event.pos())
-            self.last_point = event.pos()
+            # ✅ KALİTELİ ÇİZİM İÇİN BEZIER EĞRİSİ (quadTo)
+            # Düz çizgi yerine kavisli yol oluşturuyoruz
+            new_point = event.pos()
+            control_point = self.last_point
+            
+            # Orta nokta bulma mantığıyla yumuşatma
+            end_point = (control_point + new_point) / 2
+            
+            # Yola kavis ekle (Görsel Önizleme İçin)
+            self.current_stroke_path.quadTo(control_point, end_point)
+            
+            # Anlık segment çizimi (Performans için yükü yayıyoruz)
+            # Not: draw_segment arka planda işlem yaparken, paintEvent ön planda yumuşak yolu gösterecek
+            self.active_layer.draw_segment(self.last_point, new_point, self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
+            
+            self.last_point = new_point
             
         self.update()
 
     def mouseReleaseEvent(self, event):
         if self.is_selecting_region:
             if event.button() == Qt.LeftButton:
-                self.select_end = event.pos(); selection_rect = QRect(self.select_start, self.select_end).normalized()
+                self.select_end = event.pos()
+                selection_rect = QRect(self.select_start, self.select_end).normalized()
                 if selection_rect.width() < 5: self._finalize_screenshot(None) 
                 else: self._finalize_screenshot(selection_rect)
             return 
@@ -185,29 +180,40 @@ class DrawingOverlay(QMainWindow):
         if not self.drawing: return
         
         if self.drawing_mode in ["pen", "eraser"]:
+            # Çizim bittiğinde kaliteli yolu geçmişe ekle
             self.active_layer.add_stroke_to_history(self.current_stroke_path, self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
         elif self.drawing_mode in ["line", "rect", "ellipse"]:
-            self.active_layer.add_shape(self.drawing_mode, self.start_point, event.pos(), self.current_color, self.brush_size)
+            # Şekil çizimi
+            start_pos = self.current_stroke_path.pointAtPercent(0)
+            self.active_layer.add_shape(self.drawing_mode, start_pos, event.pos(), self.current_color, self.brush_size)
             
         self.drawing = False
-        self.current_stroke_path = QPainterPath()
+        self.current_stroke_path = QPainterPath() # Yolu sıfırla
         self.update()
         self.bring_ui_to_front()
 
     def paintEvent(self, event):
         p = QPainter(self)
+        
+        # ✅ ANTI-ALIASING (Kenar Yumuşatma)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.HighQualityAntialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        
         p.fillRect(self.rect(), Qt.white if self._whiteboard_mode else QColor(0,0,0,1))
         p.drawPixmap(0, 0, self.active_layer.pixmap)
         
-        # Şekil Önizlemesi (Kalem/Silgi hariç)
+        # Şekil Önizlemesi
         if self.drawing and self.drawing_mode in ["line", "rect", "ellipse"]:
-            p.setPen(QPen(self.current_color, self.brush_size))
+            p.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             target_pos = self.mapFromGlobal(QCursor.pos())
-            if self.drawing_mode == "line": p.drawLine(self.start_point, target_pos)
-            elif self.drawing_mode == "rect": p.drawRect(QRect(self.start_point, target_pos).normalized())
-            elif self.drawing_mode == "ellipse": p.drawEllipse(QRect(self.start_point, target_pos).normalized())
+            start_pos = self.current_stroke_path.pointAtPercent(0)
+            
+            if self.drawing_mode == "line": p.drawLine(start_pos, target_pos)
+            elif self.drawing_mode == "rect": p.drawRect(QRect(start_pos, target_pos).normalized())
+            elif self.drawing_mode == "ellipse": p.drawEllipse(QRect(start_pos, target_pos).normalized())
 
-        # Screenshot Seçim
+        # Screenshot Seçim Alanı
         if self.is_selecting_region:
             p.setBrush(QColor(0,0,0,80)); p.setPen(Qt.NoPen)
             r = self.rect(); s = QRect(self.select_start, self.select_end).normalized()
@@ -225,25 +231,24 @@ class DrawingOverlay(QMainWindow):
         self.active_layer.clear()
         self.update()
 
-    # --- [UYUMLULUK] Toolbar.py bu metodu çağırıyor ---
     def add_text(self):
         txt = ViziaTextItem(self, self._whiteboard_mode, self.current_color)
         txt.move(100,100)
-        # Sinyal bağlantısı
-        txt.delete_requested.connect(lambda w: self.active_layer.remove_widget_item(w))
+        # ✅ BELLEK TEMİZLİĞİ: deleteLater() eklendi
+        txt.delete_requested.connect(lambda w: [self.active_layer.remove_widget_item(w), w.deleteLater()])
         self.active_layer.add_widget_item(txt, 'text')
 
     def open_image_loader(self):
         path, _ = QFileDialog.getOpenFileName(self, "Görsel", "", "Resim (*.png *.jpg)")
         if path:
             img = ViziaImageItem(path, self._whiteboard_mode, self)
-            img.request_close.connect(lambda w: self.active_layer.remove_widget_item(w))
+            # ✅ BELLEK TEMİZLİĞİ: deleteLater() eklendi
+            img.request_close.connect(lambda w: [self.active_layer.remove_widget_item(w), w.deleteLater()])
             img.request_stamp.connect(lambda: self.stamp_image(img))
             self.active_layer.add_widget_item(img, 'image')
         self.force_focus()
 
     def remove_from_history(self, widget):
-        # Toolbar.py çağırmasa da bazı eski modüller için yedek
         self.active_layer.remove_widget_item(widget)
 
     def stamp_image(self, widget):
@@ -252,12 +257,15 @@ class DrawingOverlay(QMainWindow):
             pos = self.mapFromGlobal(widget.image_container.mapToGlobal(QPoint(0,0)))
             p = QPainter(self.active_layer.pixmap)
             p.setRenderHint(QPainter.SmoothPixmapTransform)
+            p.setRenderHint(QPainter.Antialiasing)
             p.drawPixmap(pos, widget.image_container.pixmap().scaled(widget.image_container.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
             p.end()
             widget.close()
+            widget.deleteLater() # ✅ Damgaladıktan sonra bellekten sil
             self.update()
             self.force_focus()
-        except: pass
+        except Exception as e: 
+            print(f"Resim damgalama hatası: {e}")
 
     # --- Screenshot ---
     def take_screenshot(self):
