@@ -63,7 +63,7 @@ class DraggableShapeButton(QPushButton):
     def __init__(self, shape_type, tooltip, toolbox_ref):
         super().__init__()
         self.shape_type = shape_type
-        self.toolbox = toolbox_ref # Toolbox referansı (Overlay'e erişim için)
+        self.toolbox = toolbox_ref 
         
         self.setIcon(_shape_icon(shape_type))
         self.setIconSize(QSize(24, 24))
@@ -80,7 +80,6 @@ class DraggableShapeButton(QPushButton):
     def mouseMoveEvent(self, event):
         if (self._drag_start is not None and (event.pos() - self._drag_start).manhattanLength() > 10):
             
-            # --- MOUSE MODU DÜZELTMESİ BAŞLANGIÇ ---
             overlay = self.toolbox.main_overlay
             was_transparent = False
             
@@ -88,7 +87,6 @@ class DraggableShapeButton(QPushButton):
                 was_transparent = True
                 overlay.setWindowFlag(Qt.WindowTransparentForInput, False)
                 overlay.show() 
-            # ---------------------------------------
 
             drag = QDrag(self)
             mime = QMimeData()
@@ -105,14 +103,11 @@ class DraggableShapeButton(QPushButton):
             drag.setPixmap(pixmap)
             drag.setHotSpot(QPoint(24, 24))
             
-            # Sürükleme işlemi (Blocking)
             drag.exec_(Qt.CopyAction)
             
-            # --- MOUSE MODU DÜZELTMESİ BİTİŞ ---
             if was_transparent and overlay:
                 overlay.setWindowFlag(Qt.WindowTransparentForInput, True)
                 overlay.show()
-            # -----------------------------------
             
             self._drag_start = None
             self.setChecked(False) 
@@ -192,7 +187,12 @@ class GeometryToolbox(QWidget):
         drag = QLabel("☰"); drag.setFixedWidth(18); drag.setAlignment(Qt.AlignCenter)
         top.addWidget(drag); top.addWidget(self._sep())
 
-        shapes = [("rect","Kare"), ("circle","Daire"), ("triangle","Üçgen"), ("star","Yıldız"), ("arrow","Ok"), ("note","Not"), ("line","Çizgi")]
+        shapes = [
+            ("rect","Kare"), ("circle","Daire"), ("triangle","Üçgen"), 
+            ("star","Yıldız"), ("arrow","Ok"), ("note","Not"), 
+            ("line","Çizgi"), ("hex", "Altıgen")
+        ]
+        
         for k, t in shapes:
             btn = DraggableShapeButton(k, t, self) 
             btn.clicked.connect(lambda c, x=k: self._on_shape_btn(x, c))
@@ -233,7 +233,7 @@ class GeometryToolbox(QWidget):
         
         bot.addWidget(self._sep())
 
-        # Saydamlık Slider (İSTEK 2)
+        # Saydamlık Slider
         lbl_op = QLabel("Opak:"); lbl_op.setStyleSheet("margin-right: 2px;")
         bot.addWidget(lbl_op)
         sl_op = QSlider(Qt.Horizontal); sl_op.setRange(20, 255); sl_op.setValue(255); sl_op.setFixedWidth(60)
@@ -258,10 +258,13 @@ class GeometryToolbox(QWidget):
 
         bot.addWidget(self._sep())
 
-        # Çıkış Butonu (İSTEK 1)
+        # Çıkış Butonu (Kırmızı)
         close_path = get_asset_path("close.png")
         btn_close = QPushButton(); btn_close.setFixedSize(32, 32)
-        btn_close.setStyleSheet("QPushButton { background-color: #3a3a3c; border: 1px solid #48484a; } QPushButton:hover { background-color: #c42b1c; border-color: #c42b1c; }")
+        btn_close.setStyleSheet("""
+            QPushButton { background-color: #d11a2a; border: 1px solid #b01522; border-radius: 8px; } 
+            QPushButton:hover { background-color: #ff3344; border-color: #ff3344; }
+        """)
         if close_path: btn_close.setIcon(QIcon(close_path)); btn_close.setIconSize(QSize(16,16))
         else: btn_close.setText("✕")
         btn_close.clicked.connect(self.close)
@@ -312,7 +315,7 @@ class GeometryToolbox(QWidget):
             self.current_color
         )
         new_shape.update_fill(self.btn_fill.isChecked())
-        new_shape.set_opacity(self.slider_opacity.value()) # Varsayılan opaklık
+        new_shape.set_opacity(self.slider_opacity.value()) 
         
         w, h = new_shape.width(), new_shape.height()
         new_shape.move(pos.x() - w//2, pos.y() - h//2)
@@ -322,6 +325,7 @@ class GeometryToolbox(QWidget):
         
         new_shape.destroyed.connect(lambda: self._on_shape_destroyed(new_shape))
         new_shape.clicked.connect(self._on_shape_clicked)
+        new_shape.rotation_changed.connect(self._on_shape_rotated_from_canvas)
         
         self._select_shape(new_shape)
 
@@ -329,17 +333,14 @@ class GeometryToolbox(QWidget):
         if self.active_shape_widget:
             try:
                 self.active_shape_widget.set_selected(False)
-            except RuntimeError:
-                pass 
-            except AttributeError:
-                pass
+            except RuntimeError: pass 
+            except AttributeError: pass
 
         self.active_shape_widget = shape
         if shape:
             try:
                 shape.set_selected(True)
                 
-                # Değerleri güncelle
                 self.slider_rot.blockSignals(True)
                 self.slider_rot.setValue(int(shape.rotation_angle) % 360)
                 self.slider_rot.blockSignals(False)
@@ -358,6 +359,11 @@ class GeometryToolbox(QWidget):
 
     def _on_shape_clicked(self, shape_obj):
         self._select_shape(shape_obj)
+        
+    def _on_shape_rotated_from_canvas(self, angle):
+        self.slider_rot.blockSignals(True)
+        self.slider_rot.setValue(int(angle) % 360)
+        self.slider_rot.blockSignals(False)
 
     def on_canvas_click(self):
         if self.active_shape_widget:
