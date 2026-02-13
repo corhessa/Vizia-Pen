@@ -1,5 +1,5 @@
 import math
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QWidget, QMenu
 from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal, QPoint, QSize
 from PyQt5.QtGui import (
     QPainter, QPen, QColor, QPainterPath, QTransform, 
@@ -37,7 +37,6 @@ def draw_shape_path(painter, shape_type, rect, extra_flags=None):
         _draw_arrow_path(painter, rect)
     elif shape_type == "note":
         _draw_note_path(painter, rect)
-    # İSTEK 2: Toolbox'ta çizgi ikonunun gözükmesi için bu blok geri eklendi
     elif shape_type == "line":
         if extra_flags.get("flipped", False):
             painter.drawLine(rect.topRight(), rect.bottomLeft())
@@ -226,7 +225,7 @@ class GeometryShape(QWidget):
         self._drag_start_pos = QPoint()
         self._rot_start_angle = 0.0   
         self._anchor_pos_parent = None 
-        self._rotation_pivot_parent = None # Kusursuz merkez dönüşü için çapa
+        self._rotation_pivot_parent = None 
 
         if self.shape_type == "line":
             self.line_p1 = QPointF(self.MARGIN, self.MARGIN)
@@ -237,6 +236,54 @@ class GeometryShape(QWidget):
             self._logical_rect = QRectF(0, 0, width, height)
             self.update_widget_size()
             self.show()
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        # Menünün arkada kalmasını engelleyen kritik bayrak
+        menu.setWindowFlags(menu.windowFlags() | Qt.WindowStaysOnTopHint) 
+        menu.setStyleSheet("""
+            QMenu { background-color: #2c2c2e; color: white; border: 1px solid #48484a; border-radius: 8px; padding: 5px; font-family: 'Segoe UI'; font-size: 13px; }
+            QMenu::item { padding: 6px 25px; border-radius: 4px; }
+            QMenu::item:selected { background-color: #007aff; }
+            QMenu::separator { height: 1px; background-color: #48484a; margin: 4px 10px; }
+        """)
+        a_front = menu.addAction("Öne Getir")
+        a_back = menu.addAction("Geriye Gönder")
+        menu.addSeparator()
+        a_dup = menu.addAction("Çoğalt")
+        a_del = menu.addAction("Sil")
+        
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        if action == a_front: self.raise_()
+        elif action == a_back: self.lower()
+        elif action == a_del: self.close()
+        elif action == a_dup:
+            if self.shape_type == "line":
+                new_shape = GeometryShape(self.parentWidget(), self.shape_type, self.primary_color.name(), self.width() - self.MARGIN*2, self.height() - self.MARGIN*2)
+            else:
+                new_shape = GeometryShape(self.parentWidget(), self.shape_type, self.primary_color.name(), self._logical_rect.width(), self._logical_rect.height())
+            
+            new_shape.opacity_val = self.opacity_val
+            new_shape.rotation_angle = self.rotation_angle
+            new_shape.filled = self.filled
+            new_shape.text = self.text
+            new_shape.is_flipped = self.is_flipped
+            new_shape.stroke_width = self.stroke_width
+            
+            if self.shape_type == "line":
+                new_shape.line_p1 = QPointF(self.line_p1)
+                new_shape.line_p2 = QPointF(self.line_p2)
+                new_shape.resize(self.size())
+            else:
+                new_shape._logical_rect = QRectF(self._logical_rect)
+                new_shape.update_widget_size()
+            
+            new_shape.move(self.x() + 20, self.y() + 20)
+            new_shape.show()
+            
+            parent_overlay = self.parentWidget()
+            if hasattr(parent_overlay, 'plugin_windows'):
+                parent_overlay.plugin_windows.register(new_shape)
 
     def set_selected(self, val):
         self.is_selected = val
@@ -270,7 +317,6 @@ class GeometryShape(QWidget):
     def update_widget_size(self, parent_anchor=None, new_anchor_logic=None, rotation_pivot=None):
         if self.shape_type == "line": return
         
-        # Güncel merkezi sakla (genel güncellemeler için)
         parent_center_initial = self.pos() + self.rect().center()
         
         t = QTransform().rotate(self.rotation_angle)
@@ -284,15 +330,12 @@ class GeometryShape(QWidget):
         self.resize(int(new_widget_w), int(new_widget_h))
         
         if rotation_pivot is not None:
-            # Sadece kolla döndürülürken: Merkez milim oynamaz
             new_local_center = QPoint(int(new_widget_w/2), int(new_widget_h/2))
             self.move(rotation_pivot - new_local_center)
         elif parent_anchor is not None and new_anchor_logic is not None:
-            # Boyut değiştirilirken: Karşı köşe oynamaz
             new_local_anchor = t.map(new_anchor_logic) + QPointF(new_widget_w/2, new_widget_h/2)
             self.move((parent_anchor - new_local_anchor).toPoint())
         else:
-            # Slider dönmesi vb: Mevcut merkez korunur
             new_local_center = QPoint(int(new_widget_w/2), int(new_widget_h/2))
             self.move(parent_center_initial - new_local_center)
 
@@ -303,7 +346,6 @@ class GeometryShape(QWidget):
         final_color = QColor(self.primary_color)
         final_color.setAlpha(self.opacity_val)
 
-        # ---------------- ÇİZGİ ÇİZİMİ ----------------
         if self.shape_type == "line":
             line_pen_color = QColor(final_color) 
             line_pen_color.setAlpha(self.opacity_val)
@@ -331,7 +373,6 @@ class GeometryShape(QWidget):
                 painter.drawEllipse(r2)
             return
 
-        # ---------------- STANDART ŞEKİL ÇİZİMİ ----------------
         center = self.rect().center()
         painter.translate(center)
         painter.rotate(self.rotation_angle)
@@ -473,8 +514,6 @@ class GeometryShape(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            
-            # --- ÇİZGİ TIKLAMA ---
             if self.shape_type == "line":
                 local_mouse = event.pos()
                 hs = self.HANDLE_SIZE
@@ -496,7 +535,6 @@ class GeometryShape(QWidget):
                     self.setFocus()
                     return
 
-            # --- STANDART ŞEKİL TIKLAMA ---
             logic_mouse = self.map_mouse_to_logic(event.globalPos())
             w, h = self._logical_rect.width(), self._logical_rect.height()
             draw_rect = QRectF(-w/2, -h/2, w, h).adjusted(-4,-4,4,4)
@@ -521,7 +559,7 @@ class GeometryShape(QWidget):
 
             if self._get_rotation_handle_rect(draw_rect).contains(logic_mouse):
                 self._rotating = True
-                self._rotation_pivot_parent = self.pos() + self.rect().center() # Kusursuz merkez çivi noktası
+                self._rotation_pivot_parent = self.pos() + self.rect().center()
                 local_mouse = self.mapFromGlobal(event.globalPos())
                 center = self.rect().center()
                 self._rot_start_angle = math.degrees(math.atan2(local_mouse.y() - center.y(), local_mouse.x() - center.x())) - self.rotation_angle
@@ -548,7 +586,6 @@ class GeometryShape(QWidget):
             new_angle = angle - self._rot_start_angle
             self.rotation_angle = new_angle
             self.rotation_changed.emit(new_angle)
-            # İSTEK 2 ÇÖZÜMÜ: Sadece dönme pivotunu koruyarak boyutu güncelle
             self.update_widget_size(rotation_pivot=self._rotation_pivot_parent) 
             self.update()
             return
@@ -556,11 +593,9 @@ class GeometryShape(QWidget):
         if self._resize_handle is not None:
             idx = self._resize_handle
             
-            # --- ÇİZGİ UZATMA (Crash Hatası Çözüldü) ---
             if self.shape_type == "line":
                 target_global = event.globalPos()
                 
-                # QPoint objelerine explicit olarak çevirip mapToGlobal kullanıyoruz
                 p1_local = QPoint(int(self.line_p1.x()), int(self.line_p1.y()))
                 p2_local = QPoint(int(self.line_p2.x()), int(self.line_p2.y()))
                 
@@ -581,7 +616,6 @@ class GeometryShape(QWidget):
                 
                 self.setGeometry(int(left), int(top), int(w), int(h))
                 
-                # QPointF'e güvenle geri çevir
                 mapped_1 = self.mapFromGlobal(g1)
                 mapped_2 = self.mapFromGlobal(g2)
                 self.line_p1 = QPointF(mapped_1.x(), mapped_1.y())
@@ -590,7 +624,6 @@ class GeometryShape(QWidget):
                 self.update()
                 return
 
-            # --- STANDART ŞEKİL BÜYÜTME (Çapa ile) ---
             mouse_logic = self.map_mouse_to_logic(event.globalPos())
             w, h = self._start_rect.width(), self._start_rect.height()
             l, t, r, b = -w/2, -h/2, w/2, h/2
@@ -618,7 +651,6 @@ class GeometryShape(QWidget):
             self.update()
             return
 
-        # Cursor Değiştirme
         if self.shape_type == "line":
             local_mouse = event.pos()
             hs = self.HANDLE_SIZE

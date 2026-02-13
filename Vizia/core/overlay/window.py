@@ -60,7 +60,6 @@ class DrawingOverlay(QMainWindow):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
         
-        # Mod değişince o katmana ait olmayan widgetları gizle
         for w in self.desktop_layer.widgets:
             w.setVisible(not value)
         for w in self.board_layer.widgets:
@@ -68,7 +67,6 @@ class DrawingOverlay(QMainWindow):
             
         self.plugin_windows.on_mode_changed(value)
         self.update()
-        # Mod değişince pencereleri tekrar öne çek
         QTimer.singleShot(50, self.bring_ui_to_front)
 
     def redraw_canvas(self):
@@ -84,7 +82,6 @@ class DrawingOverlay(QMainWindow):
             drawer = self.toolbar.drawer
             if drawer and drawer.isVisible(): drawer.raise_()
         
-        # Geometri paneli vb. pencereleri öne getir
         self.plugin_windows.bring_all_to_front()
 
     def is_mouse_on_ui(self, pos):
@@ -113,7 +110,6 @@ class DrawingOverlay(QMainWindow):
 
     # --- DRAG & DROP EVENTLARI ---
     def dragEnterEvent(self, event):
-        # Kayıtlı handler'ları kontrol et
         mime = event.mimeData()
         accepted = False
         for handler in self.drop_handlers:
@@ -130,7 +126,7 @@ class DrawingOverlay(QMainWindow):
         for handler in self.drop_handlers:
             if handler(mime, event.pos(), check_only=False):
                 event.acceptProposedAction()
-                self.force_focus() # İşlem bitince odağı geri al
+                self.force_focus() 
                 break
 
     def keyPressEvent(self, event):
@@ -169,9 +165,7 @@ class DrawingOverlay(QMainWindow):
                 self.update()
             return 
         
-        # UI üzerinde değilsek ve kalemdeysek, önce seçimleri temizle
         if not self.is_mouse_on_ui(event.pos()):
-            # Eklentilere "Boşluğa tıklandı" bilgisini gönder (Geometri şekillerini seçimden çıkarır)
             self.plugin_windows.notify_canvas_click()
             
         if self.is_mouse_on_ui(event.pos()): return 
@@ -194,7 +188,6 @@ class DrawingOverlay(QMainWindow):
             return
         
         if self.drawing_mode in ["pen", "eraser"]:
-            # ✅ KALİTELİ ÇİZİM İÇİN BEZIER EĞRİSİ (quadTo)
             new_point = event.pos()
             control_point = self.last_point
             
@@ -305,7 +298,7 @@ class DrawingOverlay(QMainWindow):
         self.drawing = False; self.is_selecting_region = True
         self.select_start = QPoint(); self.select_end = QPoint()
         self.setCursor(Qt.CrossCursor)
-        self.show_toast("Alan seçin veya tam ekran için tek tıklayın")
+        self.show_toast("<center>Alan seçin veya tam ekran için tek tıklayın<br><span style='font-size: 12px; color: #a1a1a6;'>(Çıkmak için ESC basınız)</span></center>")
         self.update()
 
     def cancel_screenshot(self):

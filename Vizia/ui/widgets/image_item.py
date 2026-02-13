@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QSizeGrip, QFrame, QSizePolicy)
+                             QLabel, QSizeGrip, QFrame, QSizePolicy, QMenu)
 from PyQt5.QtGui import QPixmap, QCursor
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect
 
@@ -9,6 +9,7 @@ class ViziaImageItem(QWidget):
     
     def __init__(self, image_path, creation_mode, parent=None):
         super().__init__(parent)
+        self.image_path = image_path
         self.creation_mode = creation_mode
         self.setWindowFlags(Qt.SubWindow)
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -21,7 +22,6 @@ class ViziaImageItem(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
         
-        # --- Üst Panel ---
         self.control_frame = QFrame()
         self.control_frame.setFixedHeight(32)
         self.control_frame.setStyleSheet("""
@@ -46,7 +46,6 @@ class ViziaImageItem(QWidget):
         self.layout.addWidget(self.control_frame)
         self.control_frame.hide()
         
-        # --- Resim Alanı ---
         self.image_container = QLabel()
         self.original_pixmap = QPixmap(image_path)
         self.image_container.setPixmap(self.original_pixmap)
@@ -55,7 +54,6 @@ class ViziaImageItem(QWidget):
         
         self.layout.addWidget(self.image_container)
         
-        # --- Tutamaç (Grip) ---
         self.grip = QSizeGrip(self)
         self.grip.setCursor(Qt.SizeFDiagCursor)
         self.grip.setStyleSheet("""
@@ -77,6 +75,36 @@ class ViziaImageItem(QWidget):
         if w > 400: h = int(h * (400/w)); w = 400
         self.resize(w, h + 32)
         self.show()
+
+    def contextMenuEvent(self, event):
+        # KRİTİK DÜZELTME: Parent olarak self.window() atandı
+        menu = QMenu(self.window())
+        menu.setWindowFlags(menu.windowFlags() | Qt.WindowStaysOnTopHint) 
+        menu.setStyleSheet("""
+            QMenu { background-color: #2c2c2e; color: white; border: 1px solid #48484a; border-radius: 8px; padding: 5px; font-family: 'Segoe UI'; font-size: 13px; }
+            QMenu::item { padding: 6px 25px; border-radius: 4px; }
+            QMenu::item:selected { background-color: #007aff; }
+            QMenu::separator { height: 1px; background-color: #48484a; margin: 4px 10px; }
+        """)
+        a_front = menu.addAction("Öne Getir")
+        a_back = menu.addAction("Geriye Gönder")
+        menu.addSeparator()
+        a_dup = menu.addAction("Çoğalt")
+        a_del = menu.addAction("Sil")
+        
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        if action == a_front: self.raise_()
+        elif action == a_back: self.lower()
+        elif action == a_del: self.close()
+        elif action == a_dup:
+            parent_overlay = self.parentWidget()
+            if parent_overlay:
+                new_img = ViziaImageItem(self.image_path, self.creation_mode, parent_overlay)
+                new_img.resize(self.size())
+                new_img.move(self.x() + 20, self.y() + 20)
+                new_img.request_close.connect(lambda w: [parent_overlay.active_layer.remove_widget_item(w), w.deleteLater()])
+                new_img.request_stamp.connect(lambda: parent_overlay.stamp_image(new_img))
+                parent_overlay.active_layer.add_widget_item(new_img, 'image')
 
     def resizeEvent(self, event):
         rect = self.rect()
