@@ -190,7 +190,7 @@ class GeometryToolbox(QWidget):
         shapes = [
             ("rect","Kare"), ("circle","Daire"), ("triangle","Üçgen"), 
             ("star","Yıldız"), ("arrow","Ok"), ("note","Not"), 
-            ("line","Çizgi"), ("hex", "Altıgen")
+            ("line","Çizgi"), ("hex", "Altıgen"), ("cylinder", "Silindir")
         ]
         
         for k, t in shapes:
@@ -317,7 +317,6 @@ class GeometryToolbox(QWidget):
         new_shape.update_fill(self.btn_fill.isChecked())
         new_shape.set_opacity(self.slider_opacity.value()) 
         
-        # Padding yüzünden center ayarlaması
         w, h = new_shape.width(), new_shape.height()
         new_shape.move(pos.x() - w//2, pos.y() - h//2)
         
