@@ -57,7 +57,7 @@ def _shape_icon(shape_type, size=28, color=None):
     return QIcon(pixmap)
 
 # ---------------------------------------------------------------------------
-# Sürükle-Bırak Butonu (GÜNCELLENDİ: Mouse Modu Desteği)
+# Sürükle-Bırak Butonu
 # ---------------------------------------------------------------------------
 class DraggableShapeButton(QPushButton):
     def __init__(self, shape_type, tooltip, toolbox_ref):
@@ -81,15 +81,13 @@ class DraggableShapeButton(QPushButton):
         if (self._drag_start is not None and (event.pos() - self._drag_start).manhattanLength() > 10):
             
             # --- MOUSE MODU DÜZELTMESİ BAŞLANGIÇ ---
-            # Eğer overlay "Taşıma Modu"ndaysa (Input Transparent), drop kabul etmez.
-            # Sürükleme süresince geçici olarak bu modu kapatıyoruz.
             overlay = self.toolbox.main_overlay
             was_transparent = False
             
             if overlay and (overlay.windowFlags() & Qt.WindowTransparentForInput):
                 was_transparent = True
                 overlay.setWindowFlag(Qt.WindowTransparentForInput, False)
-                overlay.show() # Flag değişimi sonrası show gerekebilir
+                overlay.show() 
             # ---------------------------------------
 
             drag = QDrag(self)
@@ -196,7 +194,6 @@ class GeometryToolbox(QWidget):
 
         shapes = [("rect","Kare"), ("circle","Daire"), ("triangle","Üçgen"), ("star","Yıldız"), ("arrow","Ok"), ("note","Not"), ("line","Çizgi")]
         for k, t in shapes:
-            # GÜNCELLEME: Butona 'self' (toolbox) referansı veriyoruz
             btn = DraggableShapeButton(k, t, self) 
             btn.clicked.connect(lambda c, x=k: self._on_shape_btn(x, c))
             top.addWidget(btn); self._shape_buttons[k] = btn
@@ -227,11 +224,22 @@ class GeometryToolbox(QWidget):
         
         bot.addWidget(self._sep())
 
+        # Döndürme Slider
         lbl_rot = QLabel("Döndür:"); lbl_rot.setStyleSheet("margin-right: 2px;")
         bot.addWidget(lbl_rot)
-        sl = QSlider(Qt.Horizontal); sl.setRange(0, 360); sl.setFixedWidth(70)
-        sl.valueChanged.connect(self._on_rot); self.slider_rot = sl
-        bot.addWidget(sl)
+        sl_rot = QSlider(Qt.Horizontal); sl_rot.setRange(0, 360); sl_rot.setFixedWidth(60)
+        sl_rot.valueChanged.connect(self._on_rot); self.slider_rot = sl_rot
+        bot.addWidget(sl_rot)
+        
+        bot.addWidget(self._sep())
+
+        # Saydamlık Slider (İSTEK 2)
+        lbl_op = QLabel("Opak:"); lbl_op.setStyleSheet("margin-right: 2px;")
+        bot.addWidget(lbl_op)
+        sl_op = QSlider(Qt.Horizontal); sl_op.setRange(20, 255); sl_op.setValue(255); sl_op.setFixedWidth(60)
+        sl_op.valueChanged.connect(self._on_opacity); self.slider_opacity = sl_op
+        bot.addWidget(sl_op)
+
         bot.addWidget(self._sep())
 
         undo_path = get_asset_path("undo.png")
@@ -247,6 +255,17 @@ class GeometryToolbox(QWidget):
         else: btn_clear.setText("🗑")
         btn_clear.clicked.connect(lambda: self.main_overlay.clear_all() if self.main_overlay else None)
         bot.addWidget(btn_clear)
+
+        bot.addWidget(self._sep())
+
+        # Çıkış Butonu (İSTEK 1)
+        close_path = get_asset_path("close.png")
+        btn_close = QPushButton(); btn_close.setFixedSize(32, 32)
+        btn_close.setStyleSheet("QPushButton { background-color: #3a3a3c; border: 1px solid #48484a; } QPushButton:hover { background-color: #c42b1c; border-color: #c42b1c; }")
+        if close_path: btn_close.setIcon(QIcon(close_path)); btn_close.setIconSize(QSize(16,16))
+        else: btn_close.setText("✕")
+        btn_close.clicked.connect(self.close)
+        bot.addWidget(btn_close)
 
         main.addLayout(bot)
 
@@ -293,26 +312,25 @@ class GeometryToolbox(QWidget):
             self.current_color
         )
         new_shape.update_fill(self.btn_fill.isChecked())
+        new_shape.set_opacity(self.slider_opacity.value()) # Varsayılan opaklık
+        
         w, h = new_shape.width(), new_shape.height()
         new_shape.move(pos.x() - w//2, pos.y() - h//2)
         
         self.main_overlay.active_layer.add_widget_item(new_shape, 'geometry_shape')
         new_shape.show()
         
-        # GÜNCELLEME: Şekil silindiğinde referansı temizle
         new_shape.destroyed.connect(lambda: self._on_shape_destroyed(new_shape))
         new_shape.clicked.connect(self._on_shape_clicked)
         
         self._select_shape(new_shape)
 
-    # GÜNCELLEME: RuntimeError Çözümü (Güvenli Seçim)
     def _select_shape(self, shape):
         if self.active_shape_widget:
             try:
-                # Silinmiş mi kontrol et (Eğer C++ nesnesi gittiyse RuntimeError verir)
                 self.active_shape_widget.set_selected(False)
             except RuntimeError:
-                pass # Zaten silinmiş, görmezden gel
+                pass 
             except AttributeError:
                 pass
 
@@ -320,15 +338,21 @@ class GeometryToolbox(QWidget):
         if shape:
             try:
                 shape.set_selected(True)
+                
+                # Değerleri güncelle
                 self.slider_rot.blockSignals(True)
                 self.slider_rot.setValue(int(shape.rotation_angle) % 360)
                 self.slider_rot.blockSignals(False)
+
+                self.slider_opacity.blockSignals(True)
+                self.slider_opacity.setValue(shape.opacity_val)
+                self.slider_opacity.blockSignals(False)
+                
                 self.btn_fill.setChecked(shape.filled)
             except RuntimeError:
-                self.active_shape_widget = None # Hata verirse seçimi iptal et
+                self.active_shape_widget = None
 
     def _on_shape_destroyed(self, shape):
-        # Şekil bellekten silindiğinde değişkeni sıfırla
         if self.active_shape_widget == shape:
             self.active_shape_widget = None
 
@@ -353,6 +377,12 @@ class GeometryToolbox(QWidget):
             try:
                 self.active_shape_widget.rotation_angle = float(v)
                 self.active_shape_widget.update()
+            except RuntimeError: pass
+
+    def _on_opacity(self, v):
+        if self.active_shape_widget:
+            try:
+                self.active_shape_widget.set_opacity(v)
             except RuntimeError: pass
 
     def _on_stroke_width(self, w):

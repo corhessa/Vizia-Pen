@@ -1,10 +1,10 @@
 import math
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QWidget, QInputDialog
 from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal, QPoint
 from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath, QTransform, QFont, QBrush, QCursor
 
 # ---------------------------------------------------------------------------
-# Çizim Fonksiyonları (Render Motoru - ORİJİNAL KODLAR KORUNDU)
+# Çizim Fonksiyonları (Render Motoru)
 # ---------------------------------------------------------------------------
 def draw_shape_path(painter, shape_type, rect, extra_flags=None):
     if extra_flags is None: extra_flags = {}
@@ -25,6 +25,7 @@ def draw_shape_path(painter, shape_type, rect, extra_flags=None):
     elif shape_type == "star":
         _draw_star_path(painter, rect)
     elif shape_type == "line":
+        # Çizgi mantığı: İSTEK 5 (Uçtan uca uzama)
         if extra_flags.get("flipped", False):
             painter.drawLine(rect.topRight(), rect.bottomLeft())
         else:
@@ -111,10 +112,16 @@ def _draw_note_path(painter, rect):
     painter.drawPath(fold_path)
     painter.setBrush(old_brush)
 
+    # Not çizgilerini sadece metin yoksa çiz
+    # Metin varsa temiz görünsün (İSTEK 4)
+    # Ancak parametre olarak metin gelmiyor, bu yüzden burayı sade bırakıyoruz.
+    # Metin çizimi paintEvent içinde yapılacak.
+    
     pen = QPen(QColor(0,0,0, 50), 1)
     old_pen = painter.pen()
     painter.setPen(pen)
     
+    # Hafif çizgiler (dekoratif)
     line_spacing = max(15, rect.height() / 6)
     y = rect.top() + fold + 10
     while y < rect.bottom() - 10:
@@ -123,14 +130,14 @@ def _draw_note_path(painter, rect):
     painter.setPen(old_pen)
 
 # ---------------------------------------------------------------------------
-# [GÜNCELLENDİ] GeometryShape (Artık QWidget)
+# GeometryShape
 # ---------------------------------------------------------------------------
 class GeometryShape(QWidget):
     """
     Artık bir QWidget! Bu sayede MainOverlay'e eklenebilir, 
     Z-Order yönetilebilir ve Undo sistemine dahil olabilir.
     """
-    clicked = pyqtSignal(object) # Tıklandığında kendini bildirir
+    clicked = pyqtSignal(object) 
     
     HANDLE_SIZE = 12 
     ROTATION_HANDLE_DIST = 35
@@ -142,6 +149,8 @@ class GeometryShape(QWidget):
         self.border_color = QColor(255, 255, 255, 200)
         self.stroke_width = 3
         
+        self.opacity_val = 255 # İSTEK 2 (Saydamlık)
+
         # Widget Ayarları
         self.resize(width + 40, height + 40) # Padding payı
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -167,10 +176,14 @@ class GeometryShape(QWidget):
     def set_selected(self, val):
         self.is_selected = val
         self.update()
-        if val: self.raise_() # Seçilince öne getir
+        if val: self.raise_() 
 
     def update_fill(self, is_filled):
         self.filled = is_filled
+        self.update()
+
+    def set_opacity(self, val):
+        self.opacity_val = val
         self.update()
 
     # ------ ÇİZİM (Paint Event) ------
@@ -186,13 +199,24 @@ class GeometryShape(QWidget):
         painter.rotate(self.rotation_angle)
         painter.translate(-center)
 
-        # Dolgu ve Kenarlık
-        if self.filled:
-            painter.setBrush(self.primary_color)
+        # Renk ve Saydamlık Ayarı (İSTEK 2 & 5)
+        final_color = QColor(self.primary_color)
+        final_color.setAlpha(self.opacity_val)
+        
+        if self.filled and self.shape_type != "line":
+            painter.setBrush(final_color)
         else:
             painter.setBrush(Qt.NoBrush)
 
-        pen = QPen(self.border_color, self.stroke_width)
+        # Kalem Ayarı
+        if self.shape_type == "line":
+            # Çizgi için ana rengi kullan (İSTEK 5)
+            line_pen_color = QColor(final_color) 
+            line_pen_color.setAlpha(self.opacity_val)
+            pen = QPen(line_pen_color, self.stroke_width)
+        else:
+            pen = QPen(self.border_color, self.stroke_width)
+            
         pen.setJoinStyle(Qt.RoundJoin)
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
@@ -202,12 +226,17 @@ class GeometryShape(QWidget):
         flags = {"flipped": self.is_flipped}
         draw_shape_path(painter, self.shape_type, r_draw, flags)
 
-        # Metin (Note tipi için)
+        # Metin (Note tipi için - İSTEK 4)
         if self.shape_type == "note" and self.text:
-            painter.setPen(QColor(0,0,0, 200))
-            f = QFont("Segoe UI", 10)
+            painter.setPen(QColor(0,0,0, 220)) # Siyah metin
+            # Yazı boyutunu kutuya göre dinamik ayarla (Basit bir oran)
+            font_size = max(8, int(min(r_draw.width(), r_draw.height()) / 12))
+            f = QFont("Segoe UI", font_size)
+            f.setBold(True)
             painter.setFont(f)
-            text_rect = r_draw.adjusted(10, 10, -10, -10)
+            
+            # Kenarlardan biraz boşluk bırak
+            text_rect = r_draw.adjusted(15, 25, -10, -10)
             painter.drawText(text_rect, Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop, self.text)
 
         # Seçim Tutamaçları
@@ -260,23 +289,24 @@ class GeometryShape(QWidget):
         pos = QPointF(r.center().x(), r.top() - self.ROTATION_HANDLE_DIST)
         return QRectF(pos.x() - hs/2, pos.y() - hs/2, hs, hs)
 
-    def _map_to_local_rotation(self, global_pos):
-        """Global fare pozisyonunu, şeklin dönme açısına göre yerel koordinata çevirir"""
-        center = self.mapToGlobal(self.rect().center().toPoint())
-        t = QTransform()
-        t.translate(center.x(), center.y())
-        t.rotate(-self.rotation_angle)
-        t.translate(-center.x(), -center.y())
-        return t.map(global_pos)
-
     # ------ MOUSE OLAYLARI (QWidget Eventleri) ------
+    
+    # Çift Tıklama ile Metin Ekleme (İSTEK 4)
+    def mouseDoubleClickEvent(self, event):
+        if self.shape_type == "note":
+            text, ok = QInputDialog.getMultiLineText(
+                self, "Not Ekle", "Notunuzu yazın:", self.text
+            )
+            if ok:
+                self.text = text
+                self.update()
+        super().mouseDoubleClickEvent(event)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self) # Toolbox'a haber ver
+            self.clicked.emit(self) 
             
-            # Global koordinatı, şeklin dönüşüne göre ayarla
-            local_mouse = event.pos() # Zaten widget içi koordinat ama döndürme mantığı için logic gerekebilir
-            # Basitleştirilmiş: Widget zaten kare olduğu için rect üzerinden işlem yapıyoruz
+            local_mouse = event.pos() 
             
             # Handle Kontrolü
             for i, rect in enumerate(self._get_handle_rects()):
@@ -308,10 +338,7 @@ class GeometryShape(QWidget):
             return
 
         if self._resize_handle is not None:
-            # Resize mantığı (Basitleştirilmiş)
-            # Burada widget'ın geometry'sini değiştirmek yerine drawing_rect'i güncellemek daha sağlıklı
-            # Ancak widget boyutu da artmalı.
-            # Şimdilik basitçe drawing_rect güncelliyoruz
+            # Resize mantığı (Geliştirilmiş - İSTEK 3: Kesik kalmayı düzelt)
             mouse = event.pos()
             r = self.drawing_rect
             idx = self._resize_handle
@@ -319,16 +346,32 @@ class GeometryShape(QWidget):
             min_size = 20
             l, t, r_b, b = r.left(), r.top(), r.right(), r.bottom()
 
+            # Handle'a göre koordinatları güncelle
             if idx in [0, 2, 6]: l = min(mouse.x(), r_b - min_size)
             if idx in [1, 3, 7]: r_b = max(mouse.x(), l + min_size)
             if idx in [0, 1, 4]: t = min(mouse.y(), b - min_size)
             if idx in [2, 3, 5]: b = max(mouse.y(), t + min_size)
             
-            self.drawing_rect.setCoords(l, t, r_b, b)
-            self.update()
+            # Flipped kontrolü (Çizgi veya yansıtılmış şekiller için)
+            # Eğer kullanıcı sol tutamağı sağın sağına çekerse mantık karışabilir, 
+            # şimdilik basit rect genişletme yapıyoruz. 
             
-            # Widget boyutunu çizime göre genişletmek gerekirse:
-            # self.resize(int(r_b + 40), int(b + 40)) 
+            self.drawing_rect.setCoords(l, t, r_b, b)
+            
+            # --- İSTEK 3 ÇÖZÜMÜ ---
+            # Eğer çizim alanı widget boyutunu aşıyorsa widget'ı büyüt
+            needed_w = r_b + 40
+            needed_h = b + 40
+            current_w = self.width()
+            current_h = self.height()
+            
+            new_w = max(current_w, needed_w)
+            new_h = max(current_h, needed_h)
+            
+            if new_w > current_w or new_h > current_h:
+                self.resize(int(new_w), int(new_h))
+
+            self.update()
             return
 
         # Cursor değiştirme
