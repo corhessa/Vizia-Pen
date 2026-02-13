@@ -246,8 +246,6 @@ class DrawingOverlay(QMainWindow):
             r = self.rect(); s = QRect(self.select_start, self.select_end).normalized()
             p.setClipRegion(QRegion(r).subtracted(QRegion(s))); p.fillRect(r, QColor(0,0,0,80)); p.setClipRegion(QRegion(r))
             p.setPen(QPen(Qt.white, 2, Qt.DashLine)); p.setBrush(Qt.NoBrush); p.drawRect(s)
-            
-        self.bring_ui_to_front()
 
     # --- Araçlar ---
     def undo(self):

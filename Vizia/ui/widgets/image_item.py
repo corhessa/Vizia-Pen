@@ -77,9 +77,9 @@ class ViziaImageItem(QWidget):
         self.show()
 
     def contextMenuEvent(self, event):
-        # KRİTİK DÜZELTME: Parent olarak self.window() atandı
-        menu = QMenu(self.window())
-        menu.setWindowFlags(menu.windowFlags() | Qt.WindowStaysOnTopHint) 
+        # KRİTİK DÜZELTME: Parent kaldırıldı (bağımsız pencere), her zaman en üstte kalması sağlandı
+        menu = QMenu()
+        menu.setWindowFlags(menu.windowFlags() | Qt.WindowStaysOnTopHint | Qt.Popup) 
         menu.setStyleSheet("""
             QMenu { background-color: #2c2c2e; color: white; border: 1px solid #48484a; border-radius: 8px; padding: 5px; font-family: 'Segoe UI'; font-size: 13px; }
             QMenu::item { padding: 6px 25px; border-radius: 4px; }
