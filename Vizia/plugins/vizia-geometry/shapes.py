@@ -27,31 +27,30 @@ def draw_shape_path(painter, shape_type, rect, extra_flags=None):
     elif shape_type == "hex":
         _draw_hex_path(painter, rect)
     elif shape_type == "cylinder":
-        # İSTEK 2: Renkli ve 3D Silindir
-        color = painter.brush().color() # Mevcut fırça rengini al
+        color = painter.brush().color()
         _draw_cylinder_path(painter, rect, color)
     elif shape_type == "grid":
         _draw_grid_path(painter, rect)
     elif shape_type == "star":
         _draw_star_path(painter, rect)
-    elif shape_type == "line":
-        if extra_flags.get("flipped", False):
-            painter.drawLine(rect.topRight(), rect.bottomLeft())
-        else:
-            painter.drawLine(rect.topLeft(), rect.bottomRight())     
     elif shape_type == "arrow":
         _draw_arrow_path(painter, rect)
     elif shape_type == "note":
         _draw_note_path(painter, rect)
+    # İSTEK 2: Toolbox'ta çizgi ikonunun gözükmesi için bu blok geri eklendi
+    elif shape_type == "line":
+        if extra_flags.get("flipped", False):
+            painter.drawLine(rect.topRight(), rect.bottomLeft())
+        else:
+            painter.drawLine(rect.topLeft(), rect.bottomRight())
 
 def _draw_cylinder_path(painter, rect, base_color):
     w = rect.width()
     h = rect.height()
     el_h = min(h * 0.25, w * 0.5) 
     
-    # Renk Tonları
-    if base_color.alpha() == 0: # Eğer dolgu kapalıysa
-        base_color = QColor(200, 200, 200, 50) # Hayalet renk
+    if base_color.alpha() == 0:
+        base_color = QColor(200, 200, 200, 50)
         
     light_color = base_color.lighter(130)
     dark_color = base_color.darker(110)
@@ -59,18 +58,14 @@ def _draw_cylinder_path(painter, rect, base_color):
     painter.save()
     painter.setPen(Qt.NoPen) 
     
-    # 1. Gövde ve Alt (Gradyan)
     body_path = QPainterPath()
     body_path.moveTo(rect.left(), rect.top() + el_h/2)
     body_path.lineTo(rect.left(), rect.bottom() - el_h/2)
-    # Alt yay
     body_path.arcTo(QRectF(rect.left(), rect.bottom() - el_h, w, el_h), 180, 180)
     body_path.lineTo(rect.right(), rect.top() + el_h/2)
-    # Üst yay (arka kısmı kapatmak için)
     body_path.arcTo(QRectF(rect.left(), rect.top(), w, el_h), 0, -180)
     body_path.closeSubpath()
     
-    # Gövde Gradyanı (Soldan sağa: Koyu -> Normal -> Koyu)
     grad = QLinearGradient(rect.left(), 0, rect.right(), 0)
     grad.setColorAt(0.0, dark_color)
     grad.setColorAt(0.2, base_color)
@@ -81,20 +76,15 @@ def _draw_cylinder_path(painter, rect, base_color):
     painter.setBrush(QBrush(grad))
     painter.drawPath(body_path)
     
-    # 2. Üst Kapak (Daha açık, ışık vuruyor)
     painter.setBrush(QBrush(light_color))
     painter.drawEllipse(QRectF(rect.left(), rect.top(), w, el_h))
     
     painter.restore()
     
-    # 3. Kenar Çizgileri (Tekrar çizelim ki net olsun)
-    # Eski kalemi geri yükle ama sadece dış hatlar
     old_pen = painter.pen()
     if old_pen.style() != Qt.NoPen:
-        painter.drawEllipse(QRectF(rect.left(), rect.top(), w, el_h)) # Üst
-        # Alt yay
+        painter.drawEllipse(QRectF(rect.left(), rect.top(), w, el_h))
         painter.drawArc(QRectF(rect.left(), rect.bottom() - el_h, w, el_h), 180 * 16, 180 * 16)
-        # Yanlar
         painter.drawLine(QPointF(rect.left(), rect.top() + el_h/2), QPointF(rect.left(), rect.bottom() - el_h/2))
         painter.drawLine(QPointF(rect.right(), rect.top() + el_h/2), QPointF(rect.right(), rect.bottom() - el_h/2))
 
@@ -211,7 +201,7 @@ class GeometryShape(QWidget):
     
     HANDLE_SIZE = 12 
     ROTATION_HANDLE_DIST = 35
-    MARGIN = 60 # Handle'lar için pay
+    MARGIN = 50 
 
     def __init__(self, parent, shape_type, color, width=160, height=160):
         super().__init__(parent)
@@ -224,26 +214,29 @@ class GeometryShape(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setFocusPolicy(Qt.ClickFocus)
         
-        # Durum Değişkenleri
         self.rotation_angle = 0.0
         self.filled = True
         self.is_selected = False
         self.text = ""
         self.is_flipped = False
         
-        # Etkileşim
         self._resize_handle = None    
         self._rotating = False
         self._dragging = False
         self._drag_start_pos = QPoint()
         self._rot_start_angle = 0.0   
+        self._anchor_pos_parent = None 
+        self._rotation_pivot_parent = None # Kusursuz merkez dönüşü için çapa
 
-        # Mantıksal dikdörtgen (Döndürülmemiş hali)
-        self._logical_rect = QRectF(0, 0, width, height)
-        
-        # İlk boyutu ayarla
-        self.update_widget_size()
-        self.show()
+        if self.shape_type == "line":
+            self.line_p1 = QPointF(self.MARGIN, self.MARGIN)
+            self.line_p2 = QPointF(self.MARGIN + width, self.MARGIN + height)
+            self.resize(width + self.MARGIN * 2, height + self.MARGIN * 2)
+            self.show()
+        else:
+            self._logical_rect = QRectF(0, 0, width, height)
+            self.update_widget_size()
+            self.show()
 
     def set_selected(self, val):
         self.is_selected = val
@@ -273,77 +266,87 @@ class GeometryShape(QWidget):
         else:
             super().keyPressEvent(event)
             
-    # ------ İSTEK 1: Dinamik Boyutlandırma (Boşluğa düşmeyi engelleme) ------
-    def update_widget_size(self):
-        """
-        Şekil döndürüldüğünde veya boyutlandırıldığında widget'ın fiziksel boyutunu,
-        şeklin ekran üzerindeki bounding box'ını (kapsayıcı kutusunu) içine alacak 
-        şekilde günceller. Görsel merkezi sabit tutar.
-        """
-        # Mevcut merkez (Global)
-        old_center = self.mapToGlobal(self.rect().center())
-        if not self.isVisible(): # İlk açılışta düzeltme
-             # İlk konumlandırma dışarıdan yapıldığı için burada geometry'ye güvenemeyiz
-             # Sadece resize yapalım
-             pass
-
-        # Mantıksal Rect'i merkeze al ve döndür
+    # ------ GEOMETRİ GÜNCELLEME ------
+    def update_widget_size(self, parent_anchor=None, new_anchor_logic=None, rotation_pivot=None):
+        if self.shape_type == "line": return
+        
+        # Güncel merkezi sakla (genel güncellemeler için)
+        parent_center_initial = self.pos() + self.rect().center()
+        
         t = QTransform().rotate(self.rotation_angle)
-        # Bounding Box hesapla
-        # Logical rect (0,0,w,h) -> Merkez (w/2, h/2)
         w, h = self._logical_rect.width(), self._logical_rect.height()
         centered_rect = QRectF(-w/2, -h/2, w, h)
         rotated_rect = t.mapRect(centered_rect)
         
-        # Yeni genişlik/yükseklik (Margin payı ekle)
-        new_w = rotated_rect.width() + self.MARGIN * 2
-        new_h = rotated_rect.height() + self.MARGIN * 2
+        new_widget_w = rotated_rect.width() + self.MARGIN * 2
+        new_widget_h = rotated_rect.height() + self.MARGIN * 2
         
-        # Widget'ı boyutlandır
-        self.resize(int(new_w), int(new_h))
+        self.resize(int(new_widget_w), int(new_widget_h))
         
-        # Widget'ı eski merkeze geri taşı (Böylece döndürürken kaymaz)
-        # Yeni widget merkezi = (new_w/2, new_h/2) local
-        # Globalde bu noktanın old_center olmasını istiyoruz.
-        # TopLeft = GlobalCenter - (new_w/2, new_h/2)
-        if self.isVisible():
-            new_top_left = old_center - QPoint(int(new_w/2), int(new_h/2))
-            self.move(new_top_left)
+        if rotation_pivot is not None:
+            # Sadece kolla döndürülürken: Merkez milim oynamaz
+            new_local_center = QPoint(int(new_widget_w/2), int(new_widget_h/2))
+            self.move(rotation_pivot - new_local_center)
+        elif parent_anchor is not None and new_anchor_logic is not None:
+            # Boyut değiştirilirken: Karşı köşe oynamaz
+            new_local_anchor = t.map(new_anchor_logic) + QPointF(new_widget_w/2, new_widget_h/2)
+            self.move((parent_anchor - new_local_anchor).toPoint())
+        else:
+            # Slider dönmesi vb: Mevcut merkez korunur
+            new_local_center = QPoint(int(new_widget_w/2), int(new_widget_h/2))
+            self.move(parent_center_initial - new_local_center)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Widget'ın tam ortasına git
-        center = self.rect().center()
-        painter.translate(center)
-        
-        # Döndür
-        painter.rotate(self.rotation_angle)
-        
-        # Çizimi merkeze göre yap (-w/2, -h/2)
-        # Logical rect'in boyutu kadar
-        w, h = self._logical_rect.width(), self._logical_rect.height()
-        draw_rect = QRectF(-w/2, -h/2, w, h)
-
         final_color = QColor(self.primary_color)
         final_color.setAlpha(self.opacity_val)
-        
-        # Silindir kendi fırça mantığını yönetiyor
-        if self.shape_type == "cylinder":
-             painter.setBrush(final_color) # Rengi aktar
-        elif self.filled and self.shape_type != "line":
-            painter.setBrush(final_color)
-        else:
-            painter.setBrush(Qt.NoBrush)
 
+        # ---------------- ÇİZGİ ÇİZİMİ ----------------
         if self.shape_type == "line":
             line_pen_color = QColor(final_color) 
             line_pen_color.setAlpha(self.opacity_val)
             pen = QPen(line_pen_color, self.stroke_width)
-        else:
-            pen = QPen(self.border_color, self.stroke_width)
+            pen.setJoinStyle(Qt.RoundJoin)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
             
+            painter.drawLine(self.line_p1, self.line_p2)
+            
+            if self.is_selected:
+                hs = self.HANDLE_SIZE
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(Qt.white)
+                
+                r1 = QRectF(self.line_p1.x() - hs/2, self.line_p1.y() - hs/2, hs, hs)
+                r2 = QRectF(self.line_p2.x() - hs/2, self.line_p2.y() - hs/2, hs, hs)
+                
+                painter.drawEllipse(r1)
+                painter.drawEllipse(r2)
+                
+                painter.setBrush(Qt.NoBrush)
+                painter.setPen(QPen(QColor(100, 100, 255), 2))
+                painter.drawEllipse(r1)
+                painter.drawEllipse(r2)
+            return
+
+        # ---------------- STANDART ŞEKİL ÇİZİMİ ----------------
+        center = self.rect().center()
+        painter.translate(center)
+        painter.rotate(self.rotation_angle)
+        
+        w, h = self._logical_rect.width(), self._logical_rect.height()
+        draw_rect = QRectF(-w/2, -h/2, w, h)
+
+        if self.shape_type == "cylinder":
+             painter.setBrush(final_color) 
+        elif self.filled:
+            painter.setBrush(final_color)
+        else:
+            painter.setBrush(Qt.NoBrush)
+
+        pen = QPen(self.border_color, self.stroke_width)
         pen.setJoinStyle(Qt.RoundJoin)
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
@@ -378,12 +381,14 @@ class GeometryShape(QWidget):
 
     def _draw_handles(self, painter, rect):
         hs = self.HANDLE_SIZE
+        bound_rect = rect.adjusted(-4, -4, 4, 4)
+        
         sel_pen = QPen(QColor(100, 100, 255), 1.5, Qt.SolidLine)
         painter.setPen(sel_pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(rect)
+        painter.drawRect(bound_rect)
         
-        handles = self._get_handle_info(rect)
+        handles = self._get_handle_info(bound_rect)
         for h_type, r in handles:
             painter.setPen(Qt.NoPen)
             painter.setBrush(Qt.white)
@@ -398,41 +403,29 @@ class GeometryShape(QWidget):
                 painter.setPen(QPen(QColor(100, 100, 255), 2))
                 painter.drawRoundedRect(r, 3, 3)
 
-        rot_pos = QPointF(rect.center().x(), rect.top() - self.ROTATION_HANDLE_DIST)
+        rot_pos = QPointF(bound_rect.center().x(), bound_rect.top() - self.ROTATION_HANDLE_DIST)
         painter.setPen(QPen(QColor(100, 100, 255), 1.5))
-        painter.drawLine(QPointF(rect.center().x(), rect.top()), rot_pos)
+        painter.drawLine(QPointF(bound_rect.center().x(), bound_rect.top()), rot_pos)
         
         painter.setBrush(Qt.white)
         painter.setPen(QPen(QColor(100, 100, 255), 2))
         painter.drawEllipse(rot_pos, hs/1.5, hs/1.5)
 
     def _get_handle_info(self, rect):
-        if self.shape_type == "line":
-            hs = self.HANDLE_SIZE
-            p1 = rect.topLeft()
-            p2 = rect.bottomRight()
-            if self.is_flipped:
-                p1 = rect.topRight()
-                p2 = rect.bottomLeft()
-            return [
-                ("corner", QRectF(p1.x()-hs/2, p1.y()-hs/2, hs, hs)),
-                ("corner", QRectF(p2.x()-hs/2, p2.y()-hs/2, hs, hs))
-            ]
-
         hs = self.HANDLE_SIZE
         cx, cy = rect.center().x(), rect.center().y()
         corners = [
-            ("corner", QRectF(rect.left()-hs/2, rect.top()-hs/2, hs, hs)),      # TL (0)
-            ("corner", QRectF(rect.right()-hs/2, rect.top()-hs/2, hs, hs)),     # TR (1)
-            ("corner", QRectF(rect.left()-hs/2, rect.bottom()-hs/2, hs, hs)),   # BL (2)
-            ("corner", QRectF(rect.right()-hs/2, rect.bottom()-hs/2, hs, hs))   # BR (3)
+            ("corner", QRectF(rect.left()-hs/2, rect.top()-hs/2, hs, hs)),      
+            ("corner", QRectF(rect.right()-hs/2, rect.top()-hs/2, hs, hs)),     
+            ("corner", QRectF(rect.left()-hs/2, rect.bottom()-hs/2, hs, hs)),   
+            ("corner", QRectF(rect.right()-hs/2, rect.bottom()-hs/2, hs, hs))   
         ]
         bar_w, bar_h = 16, 6
         sides = [
-            ("side", QRectF(cx-bar_w/2, rect.top()-bar_h/2, bar_w, bar_h)),       # Top (4)
-            ("side", QRectF(cx-bar_w/2, rect.bottom()-bar_h/2, bar_w, bar_h)),    # Bottom (5)
-            ("side", QRectF(rect.left()-bar_h/2, cy-bar_w/2, bar_h, bar_w)),      # Left (6)
-            ("side", QRectF(rect.right()-bar_h/2, cy-bar_w/2, bar_h, bar_w))      # Right (7)
+            ("side", QRectF(cx-bar_w/2, rect.top()-bar_h/2, bar_w, bar_h)),       
+            ("side", QRectF(cx-bar_w/2, rect.bottom()-bar_h/2, bar_w, bar_h)),    
+            ("side", QRectF(rect.left()-bar_h/2, cy-bar_w/2, bar_h, bar_w)),      
+            ("side", QRectF(rect.right()-bar_h/2, cy-bar_w/2, bar_h, bar_w))      
         ]
         return corners + sides
 
@@ -442,8 +435,6 @@ class GeometryShape(QWidget):
         return QRectF(pos.x() - hs/2, pos.y() - hs/2, hs, hs)
 
     def map_mouse_to_logic(self, global_pos):
-        # Global fare pozisyonunu, şeklin merkezine göre ve açısı düzeltilmiş
-        # yerel koordinat sistemine çevirir.
         local_pos = self.mapFromGlobal(global_pos)
         widget_center = self.rect().center()
         
@@ -454,25 +445,61 @@ class GeometryShape(QWidget):
         rx = dx * math.cos(angle_rad) - dy * math.sin(angle_rad)
         ry = dx * math.sin(angle_rad) + dy * math.cos(angle_rad)
         
-        # Logical Rect merkezli koordinat (0,0 noktası logical rect'in sol üstü değil, merkezi değil.
-        # Logical rect (-w/2, -h/2, w, h) olarak çiziliyor paint'te.
-        # Bu yüzden rx, ry doğrudan merkeze göre offset.
-        # Logical rect koordinat sisteminde (sol üst köşe bazlı) işlem yapmak için:
-        # Logical Rect Center = (0,0) (bizim çizim sistemimizde)
-        # Mouse logic de (0,0) merkezli geliyor.
-        
-        # Ancak _get_handle_info 'rect' alıyor. Bizim rect'imiz (-w/2, -h/2, w, h).
-        # Bu rect'in merkezi (0,0).
-        # O yüzden rx, ry direk kullanılabilir.
         return QPointF(rx, ry)
+
+    def _get_opposite_handle_index(self, idx):
+        if idx == 0: return 3
+        if idx == 1: return 2
+        if idx == 2: return 1
+        if idx == 3: return 0
+        if idx == 4: return 5
+        if idx == 5: return 4
+        if idx == 6: return 7
+        if idx == 7: return 6
+        return -1
+
+    def _get_logical_point_from_handle_index(self, idx):
+        w, h = self._logical_rect.width(), self._logical_rect.height()
+        draw_rect = QRectF(-w/2, -h/2, w, h)
+        if idx == 0: return draw_rect.topLeft()
+        if idx == 1: return draw_rect.topRight()
+        if idx == 2: return draw_rect.bottomLeft()
+        if idx == 3: return draw_rect.bottomRight()
+        if idx == 4: return QPointF(0, draw_rect.top())
+        if idx == 5: return QPointF(0, draw_rect.bottom())
+        if idx == 6: return QPointF(draw_rect.left(), 0)
+        if idx == 7: return QPointF(draw_rect.right(), 0)
+        return QPointF(0,0)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            logic_mouse = self.map_mouse_to_logic(event.globalPos())
             
-            # Logical draw rect (-w/2, -h/2, w, h)
+            # --- ÇİZGİ TIKLAMA ---
+            if self.shape_type == "line":
+                local_mouse = event.pos()
+                hs = self.HANDLE_SIZE
+                r1 = QRectF(self.line_p1.x() - hs, self.line_p1.y() - hs, hs*2, hs*2) 
+                r2 = QRectF(self.line_p2.x() - hs, self.line_p2.y() - hs, hs*2, hs*2)
+                
+                if r1.contains(local_mouse):
+                    self._resize_handle = 0
+                    self.clicked.emit(self)
+                    return
+                elif r2.contains(local_mouse):
+                    self._resize_handle = 1
+                    self.clicked.emit(self)
+                    return
+                else:
+                    self._dragging = True
+                    self._drag_start_pos = event.globalPos() - self.pos()
+                    self.clicked.emit(self)
+                    self.setFocus()
+                    return
+
+            # --- STANDART ŞEKİL TIKLAMA ---
+            logic_mouse = self.map_mouse_to_logic(event.globalPos())
             w, h = self._logical_rect.width(), self._logical_rect.height()
-            draw_rect = QRectF(-w/2, -h/2, w, h)
+            draw_rect = QRectF(-w/2, -h/2, w, h).adjusted(-4,-4,4,4)
             
             handles = self._get_handle_info(draw_rect)
             for i, (htype, h_rect) in enumerate(handles):
@@ -480,12 +507,21 @@ class GeometryShape(QWidget):
                     self._resize_handle = i
                     self.clicked.emit(self)
                     self._drag_start_pos = event.globalPos()
-                    # Başlangıç boyutunu sakla
                     self._start_rect = QRectF(self._logical_rect)
+                    
+                    opp_idx = self._get_opposite_handle_index(i)
+                    if opp_idx != -1:
+                        anchor_logic = self._get_logical_point_from_handle_index(opp_idx)
+                        t = QTransform().rotate(self.rotation_angle)
+                        local_anchor = t.map(anchor_logic) + QPointF(self.width()/2, self.height()/2)
+                        self._anchor_pos_parent = self.pos() + local_anchor.toPoint()
+                    else:
+                        self._anchor_pos_parent = None
                     return
 
             if self._get_rotation_handle_rect(draw_rect).contains(logic_mouse):
                 self._rotating = True
+                self._rotation_pivot_parent = self.pos() + self.rect().center() # Kusursuz merkez çivi noktası
                 local_mouse = self.mapFromGlobal(event.globalPos())
                 center = self.rect().center()
                 self._rot_start_angle = math.degrees(math.atan2(local_mouse.y() - center.y(), local_mouse.x() - center.x())) - self.rotation_angle
@@ -512,88 +548,91 @@ class GeometryShape(QWidget):
             new_angle = angle - self._rot_start_angle
             self.rotation_angle = new_angle
             self.rotation_changed.emit(new_angle)
-            self.update_widget_size() # Dönünce boyutu güncelle!
+            # İSTEK 2 ÇÖZÜMÜ: Sadece dönme pivotunu koruyarak boyutu güncelle
+            self.update_widget_size(rotation_pivot=self._rotation_pivot_parent) 
             self.update()
             return
 
         if self._resize_handle is not None:
             idx = self._resize_handle
             
+            # --- ÇİZGİ UZATMA (Crash Hatası Çözüldü) ---
             if self.shape_type == "line":
-                # Line serbest yönetimi
-                mouse_logic = self.map_mouse_to_logic(event.globalPos())
+                target_global = event.globalPos()
                 
-                # Mevcut uç noktaları belirle (Merkez (0,0) bazlı draw_rect'ten)
-                w, h = self._logical_rect.width(), self._logical_rect.height()
-                draw_rect = QRectF(-w/2, -h/2, w, h)
+                # QPoint objelerine explicit olarak çevirip mapToGlobal kullanıyoruz
+                p1_local = QPoint(int(self.line_p1.x()), int(self.line_p1.y()))
+                p2_local = QPoint(int(self.line_p2.x()), int(self.line_p2.y()))
                 
-                if self.is_flipped:
-                    p1 = draw_rect.topRight()    
-                    p2 = draw_rect.bottomLeft()  
+                if idx == 0:
+                    g1 = target_global
+                    g2 = self.mapToGlobal(p2_local)
                 else:
-                    p1 = draw_rect.topLeft()     
-                    p2 = draw_rect.bottomRight() 
-
-                if idx == 0: p1 = mouse_logic
-                elif idx == 1: p2 = mouse_logic
+                    g1 = self.mapToGlobal(p1_local)
+                    g2 = target_global
+                    
+                parent_p1 = self.parentWidget().mapFromGlobal(g1)
+                parent_p2 = self.parentWidget().mapFromGlobal(g2)
                 
-                # Yeni Rect
-                new_rect_local = QRectF(p1, p2).normalized()
+                left = min(parent_p1.x(), parent_p2.x()) - self.MARGIN
+                top = min(parent_p1.y(), parent_p2.y()) - self.MARGIN
+                w = abs(parent_p1.x() - parent_p2.x()) + self.MARGIN * 2
+                h = abs(parent_p1.y() - parent_p2.y()) + self.MARGIN * 2
                 
-                # Merkez kayması var mı?
-                # Line'ın merkezi değiştiği için widget'ın da kayması gerekebilir ama
-                # şimdilik sadece boyutu güncelliyoruz. Line widget içinde yüzecek.
+                self.setGeometry(int(left), int(top), int(w), int(h))
                 
-                self.is_flipped = (p1.x() < p2.x()) != (p1.y() < p2.y())
-                self._logical_rect = QRectF(0, 0, new_rect_local.width(), new_rect_local.height())
+                # QPointF'e güvenle geri çevir
+                mapped_1 = self.mapFromGlobal(g1)
+                mapped_2 = self.mapFromGlobal(g2)
+                self.line_p1 = QPointF(mapped_1.x(), mapped_1.y())
+                self.line_p2 = QPointF(mapped_2.x(), mapped_2.y())
                 
-                self.update_widget_size()
                 self.update()
+                return
 
-            else:
-                # Standart Resize (Delta bazlı, Global fareden)
-                delta = event.globalPos() - self._drag_start_pos
-                
-                # Bu delta widget koordinatlarında değil, global.
-                # Ancak şekil dönük.
-                # Basit çözüm: Farenin logical koordinatındaki değişimine bakmak daha doğru olurdu
-                # ama kullanıcı deneyimi için global delta'yı logical eksenlere izdüşürmek gerek.
-                # Hızlı çözüm: Mouse logic position kullanmak.
-                
-                mouse_logic = self.map_mouse_to_logic(event.globalPos())
-                
-                # Başlangıç Rect (Draw coord system: center 0,0)
-                w, h = self._start_rect.width(), self._start_rect.height()
-                l, t, r, b = -w/2, -h/2, w/2, h/2
-                
-                # Hangi kenar tutulduysa o kenarı mouse_logic'e çek
-                target_x, target_y = mouse_logic.x(), mouse_logic.y()
-                
-                if idx == 0: l, t = target_x, target_y      # TL
-                elif idx == 1: r, t = target_x, target_y    # TR
-                elif idx == 2: l, b = target_x, target_y    # BL
-                elif idx == 3: r, b = target_x, target_y    # BR
-                elif idx == 4: t = target_y                 # Top
-                elif idx == 5: b = target_y                 # Bottom
-                elif idx == 6: l = target_x                 # Left
-                elif idx == 7: r = target_x                 # Right
-                
-                new_w = abs(r - l)
-                new_h = abs(b - t)
-                
-                # Minimum boyut
-                if new_w < 20: new_w = 20
-                if new_h < 20: new_h = 20
-                
-                self._logical_rect = QRectF(0, 0, new_w, new_h)
-                self.update_widget_size()
-                self.update()
+            # --- STANDART ŞEKİL BÜYÜTME (Çapa ile) ---
+            mouse_logic = self.map_mouse_to_logic(event.globalPos())
+            w, h = self._start_rect.width(), self._start_rect.height()
+            l, t, r, b = -w/2, -h/2, w/2, h/2
+            
+            tx, ty = mouse_logic.x(), mouse_logic.y()
+            
+            if idx == 0: l, t = tx, ty      
+            elif idx == 1: r, t = tx, ty    
+            elif idx == 2: l, b = tx, ty    
+            elif idx == 3: r, b = tx, ty    
+            elif idx == 4: t = ty                 
+            elif idx == 5: b = ty                 
+            elif idx == 6: l = tx                 
+            elif idx == 7: r = tx                 
+            
+            new_w = abs(r - l)
+            new_h = abs(b - t)
+            if new_w < 20: new_w = 20
+            if new_h < 20: new_h = 20
+            self._logical_rect = QRectF(0, 0, new_w, new_h)
+
+            opp_idx = self._get_opposite_handle_index(idx)
+            new_anchor_logic = self._get_logical_point_from_handle_index(opp_idx)
+            self.update_widget_size(self._anchor_pos_parent, new_anchor_logic)
+            self.update()
             return
 
         # Cursor Değiştirme
+        if self.shape_type == "line":
+            local_mouse = event.pos()
+            hs = self.HANDLE_SIZE
+            r1 = QRectF(self.line_p1.x() - hs, self.line_p1.y() - hs, hs*2, hs*2)
+            r2 = QRectF(self.line_p2.x() - hs, self.line_p2.y() - hs, hs*2, hs*2)
+            if r1.contains(local_mouse) or r2.contains(local_mouse):
+                self.setCursor(Qt.PointingHandCursor)
+            else:
+                self.setCursor(Qt.SizeAllCursor)
+            return
+
         logic_mouse = self.map_mouse_to_logic(event.globalPos())
         w, h = self._logical_rect.width(), self._logical_rect.height()
-        draw_rect = QRectF(-w/2, -h/2, w, h)
+        draw_rect = QRectF(-w/2, -h/2, w, h).adjusted(-4,-4,4,4)
         
         if self._get_rotation_handle_rect(draw_rect).contains(logic_mouse):
             self.setCursor(Qt.PointingHandCursor)
