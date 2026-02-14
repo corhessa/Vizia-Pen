@@ -1,8 +1,6 @@
-# Vizia/core/toolbar.py
-
 import sys
 import os
-import importlib.util  # [YENİ] Dinamik yükleme için gerekli
+import importlib.util 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, 
                              QLabel, QFrame, QApplication, QGraphicsOpacityEffect)
 from PyQt5.QtGui import QPixmap, QColor, QIcon, QKeySequence
@@ -22,13 +20,12 @@ def resource_path(relative_path):
 # --- EK ARAÇLAR (DRAWER) ---
 class ExtensionDrawer(QWidget):
     def __init__(self, parent_toolbar):
-        super().__init__(None) # Bağımsız
+        # [EVLAT EDİNME] Çekmecenin ebeveynini Ana Çizim Ekranı (overlay) yaptık
+        super().__init__(parent_toolbar.overlay) 
         self.toolbar_ref = parent_toolbar
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        
-        # [GÜNCELLENDİ] Tooltip ayarı
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
         
         self.is_open = False
@@ -46,13 +43,10 @@ class ExtensionDrawer(QWidget):
         self.layout.setContentsMargins(5, 10, 5, 10)
         self.layout.setSpacing(8)
         
-        # --- ANA PROJEDE KALAN SABİT BUTON ---
         self.btn_folder = self.create_drawer_btn("add-folder.png", "Görsel Yükle", self.action_load_image)
         self.layout.addWidget(self.btn_folder)
         
-        # [YENİ] Dinamik Eklentileri Yükle
         self.load_plugins()
-        
         self.layout.addStretch()
         
         self.anim = QPropertyAnimation(self, b"size")
@@ -77,22 +71,17 @@ class ExtensionDrawer(QWidget):
                     return 
         super().keyPressEvent(event)
 
-    # [GÜNCELLENDİ] Hem Asset hem de Plugin klasöründen ikon kabul eder
     def create_drawer_btn(self, icon_path_or_name, tooltip, func):
         btn = QPushButton()
-        
-        # 1. Önce eklentiden gelen tam yol mu diye kontrol et
         if os.path.exists(icon_path_or_name):
             final_path = icon_path_or_name
         else:
-            # 2. Değilse, ana projenin Assets klasöründe ara
             final_path = resource_path(f"Vizia/Assets/{icon_path_or_name}")
 
         if os.path.exists(final_path):
             btn.setIcon(QIcon(final_path))
             btn.setIconSize(QSize(24, 24))
         else:
-            # İkon yoksa baş harfi göster
             text = tooltip[0] if tooltip else "?"
             btn.setText(text)
             btn.setStyleSheet("color: white; font-weight: bold;")
@@ -105,18 +94,11 @@ class ExtensionDrawer(QWidget):
 
     def handle_click_sequence(self, func):
         if func: func()
-        self.raise_()
 
-    # [YENİ] Eklenti Yükleme Mantığı
     def load_plugins(self):
-        # Bu dosya: Vizia/core/toolbar.py
-        # Plugins klasörü: Vizia/plugins (Main.py ile aynı seviyede olması için '../plugins')
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Önce 'core'un yanındaki 'plugins' klasörüne bak (Vizia/plugins)
         plugins_dir = os.path.abspath(os.path.join(current_dir, "../plugins"))
         
-        # Eğer orada yoksa bir üst dizine bak (Proje kökü)
         if not os.path.exists(plugins_dir):
             plugins_dir = os.path.abspath(os.path.join(current_dir, "../../plugins"))
 
@@ -124,27 +106,19 @@ class ExtensionDrawer(QWidget):
             print(f"Plugins klasörü bulunamadı: {plugins_dir}")
             return
 
-        # Klasörleri gez
         for folder_name in os.listdir(plugins_dir):
             plugin_path = os.path.join(plugins_dir, folder_name)
             plugin_file = os.path.join(plugin_path, "plugin.py")
 
             if os.path.isdir(plugin_path) and os.path.exists(plugin_file):
                 try:
-                    # Dinamik Import
                     spec = importlib.util.spec_from_file_location(f"plugins.{folder_name}", plugin_file)
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
 
-                    # Plugin Sınıfını Başlat
                     if hasattr(module, "ViziaPlugin"):
                         plugin_instance = module.ViziaPlugin()
-                        
-                        # İkon yolunu tam yola çevir
                         full_icon_path = os.path.join(plugin_path, plugin_instance.icon)
-                        
-                        # Butonu Oluştur ve Ekle
-                        # (lambda p=... ile değişkeni sabitlemek önemli)
                         btn = self.create_drawer_btn(
                             full_icon_path, 
                             plugin_instance.name, 
@@ -161,7 +135,6 @@ class ExtensionDrawer(QWidget):
 
     def update_position(self):
         if not self.isVisible(): return
-        self.raise_() 
         tb_geo = self.toolbar_ref.geometry()
         target_x = tb_geo.x() + tb_geo.width() + 5 
         strip_btn = self.toolbar_ref.strip_btn
@@ -173,14 +146,20 @@ class ExtensionDrawer(QWidget):
         self.anim.stop()
         content_height = self.layout.sizeHint().height() + 20
         if not self.is_open:
-            self.is_open = True; self.show(); self.raise_()
-            # [SİSTEM HATASI FİXİ] Windows UpdateLayeredWindowIndirect çökmesini engellemek için "0" olan başlangıç genişliğini "1" yaptık.
-            self.container.resize(self.target_width, content_height); self.resize(1, content_height)
+            self.is_open = True
+            self.show()
+            self.container.resize(self.target_width, content_height)
+            self.resize(1, content_height)
             self.update_position()
-            self.anim.setStartValue(QSize(1, content_height)); self.anim.setEndValue(QSize(self.target_width, content_height)); self.anim.start()
+            self.anim.setStartValue(QSize(1, content_height))
+            self.anim.setEndValue(QSize(self.target_width, content_height))
+            self.anim.start()
         else:
             self.is_open = False
-            self.anim.setStartValue(self.size()); self.anim.setEndValue(QSize(1, content_height)); self.anim.finished.connect(self._on_close_finished); self.anim.start()
+            self.anim.setStartValue(self.size())
+            self.anim.setEndValue(QSize(1, content_height))
+            self.anim.finished.connect(self._on_close_finished)
+            self.anim.start()
 
     def _on_close_finished(self):
         if not self.is_open:
@@ -280,7 +259,6 @@ class ModernToolbar(QWidget):
         self.btn_board.setProperty("state", "green" if self.overlay.whiteboard_mode else "red")
         self.btn_board.style().unpolish(self.btn_board)
         self.btn_board.style().polish(self.btn_board)
-        # [DÜZELTME] Anında tepki için render zorlaması
         self.btn_board.repaint() 
         QApplication.processEvents()
         
@@ -301,12 +279,11 @@ class ModernToolbar(QWidget):
             b.setProperty("active", False)
             b.style().unpolish(b)
             b.style().polish(b)
-            b.repaint() # Eski mavi rengi hemen sil   
+            b.repaint()  
             
         button.setProperty("active", True)
         button.style().unpolish(button)
         button.style().polish(button)
-        # [DÜZELTME] Yeni mavi efekti gecikmesiz göster
         button.repaint()
         QApplication.processEvents()
         

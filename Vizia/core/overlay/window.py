@@ -20,7 +20,9 @@ class DrawingOverlay(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = SettingsManager()
-        self.plugin_windows = PluginWindowManager()
+        
+        # [EVLAT EDİNME] Kendisini (self) yöneticiye aktarır, böylece eklentiler bu ekrana bağlanır
+        self.plugin_windows = PluginWindowManager(self)
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -60,7 +62,6 @@ class DrawingOverlay(QMainWindow):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
         
-        # [ÇÖKME FİXİ] Zombi objeleri temizleyip hata anında atlıyoruz
         self.desktop_layer.cleanup_dead_widgets()
         self.board_layer.cleanup_dead_widgets()
         
@@ -79,7 +80,6 @@ class DrawingOverlay(QMainWindow):
     def redraw_canvas(self):
         self.active_layer.redraw()
         self.update()
-        self.bring_ui_to_front()
 
     def bring_ui_to_front(self):
         if not self.toolbar: return
@@ -96,12 +96,10 @@ class DrawingOverlay(QMainWindow):
             global_pos = self.mapToGlobal(pos)
             
             if self.toolbar.isVisible() and self.toolbar.geometry().contains(global_pos): 
-                self.toolbar.raise_()
                 return True
             
             drawer = getattr(self.toolbar, 'drawer', None)
             if drawer and drawer.isVisible() and drawer.geometry().contains(global_pos): 
-                drawer.raise_()
                 return True
             
             if self.plugin_windows.is_mouse_on_any(global_pos):
@@ -123,7 +121,6 @@ class DrawingOverlay(QMainWindow):
                 event.acceptProposedAction()
                 accepted = True
                 break
-        
         if not accepted:
             event.ignore()
 
@@ -185,7 +182,6 @@ class DrawingOverlay(QMainWindow):
 
     def mouseMoveEvent(self, event):
         if self.is_selecting_region: 
-            # [PERFORMANS] Tüm ekranı değil sadece seçilen kutuyu yenile
             old_rect = QRect(self.select_start, self.select_end).normalized()
             self.select_end = event.pos()
             new_rect = QRect(self.select_start, self.select_end).normalized()
@@ -205,7 +201,6 @@ class DrawingOverlay(QMainWindow):
             
             self.active_layer.draw_segment(self.last_point, new_point, self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
             
-            # [PERFORMANS] Titremeyi önlemek için sadece fırçanın değdiği noktayı güncelle
             update_rect = QRect(self.last_point, new_point).normalized()
             update_rect.adjust(-self.brush_size - 5, -self.brush_size - 5, self.brush_size + 5, self.brush_size + 5)
             self.update(update_rect)
@@ -234,7 +229,6 @@ class DrawingOverlay(QMainWindow):
         self.drawing = False
         self.current_stroke_path = QPainterPath() 
         self.update()
-        self.bring_ui_to_front()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -242,7 +236,6 @@ class DrawingOverlay(QMainWindow):
         p.setRenderHint(QPainter.HighQualityAntialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         
-        # [PERFORMANS] Sisteme sadece güncellenen (dirty) bölgeyi boyamasını söylüyoruz
         rect = event.rect()
         p.setClipRect(rect)
         
