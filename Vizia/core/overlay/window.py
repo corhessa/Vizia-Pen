@@ -5,7 +5,7 @@ except ImportError:
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog
 from PyQt5.QtGui import QPainter, QPen, QColor, QKeySequence, QCursor, QPainterPath, QRegion
-from PyQt5.QtCore import Qt, QPoint, QTimer, QRect, QMimeData
+from PyQt5.QtCore import Qt, QPoint, QTimer, QRect, QMimeData, QEvent
 
 from core.settings import SettingsManager
 from core.screenshot import ScreenshotManager
@@ -20,8 +20,6 @@ class DrawingOverlay(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = SettingsManager()
-        
-        # [EVLAT EDİNME] Kendisini (self) yöneticiye aktarır, böylece eklentiler bu ekrana bağlanır
         self.plugin_windows = PluginWindowManager(self)
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
@@ -31,6 +29,9 @@ class DrawingOverlay(QMainWindow):
         self.drop_handlers = []
 
         self.showFullScreen()
+        
+        # [AKILLI KISAYOL] Tüm uygulamayı dinleyen Global Kalkanı devreye alıyoruz
+        QApplication.instance().installEventFilter(self)
         
         screen_size = QApplication.primaryScreen().size()
         self.desktop_layer = CanvasLayer(screen_size)
@@ -132,33 +133,67 @@ class DrawingOverlay(QMainWindow):
                 self.force_focus() 
                 break
 
-    def keyPressEvent(self, event):
-        if self.is_selecting_region and event.key() == Qt.Key_Escape:
-            self.cancel_screenshot(); return
+    # [AKILLI KISAYOL] Eski keyPressEvent silinip yerine bu Global Kalkan eklendi
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress:
+            is_typing = False
             
-        key = event.key()
-        modifiers = int(event.modifiers())
-        
-        try:
-            def check_hotkey(action_name):
-                hotkey_str = self.settings.get("hotkeys").get(action_name)
-                if not hotkey_str: return False
-                seq = QKeySequence(key | modifiers)
-                return seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch or \
-                       (modifiers == 0 and key == QKeySequence(hotkey_str)[0])
+            # Kullanıcı Recorder, Geometri vb. yerlerde bir metin alanında mı kontrolü
+            if hasattr(obj, 'metaObject'):
+                c_name = obj.metaObject().className()
+                if "Edit" in c_name or "Text" in c_name or "Input" in c_name or "Box" in c_name:
+                    is_typing = True
+                    
+            # Eğer yazı yazıyorsa, klavye tuşlarını engelleme (Space tuşu boşluk bıraksın)
+            if is_typing:
+                return super().eventFilter(obj, event)
 
-            if key == Qt.Key_Backspace: self.undo()
-            elif check_hotkey("board_mode"): 
-                if self.toolbar: self.toolbar.toggle_board()
-            elif check_hotkey("drawer"): self.toolbar.toggle_drawer() if self.toolbar else None
-            elif check_hotkey("undo"): self.undo()
-            elif check_hotkey("quit"): QApplication.quit()
-            elif check_hotkey("screenshot"): self.take_screenshot()
-            elif check_hotkey("clear"): self.clear_all()
-            elif check_hotkey("move_mode"): self.toolbar.toggle_move_mode() if self.toolbar else None
-            elif check_hotkey("color_picker"): self.toolbar.select_color() if self.toolbar else None
-        except Exception as e:
-            print(f"Kısayol hatası: {e}")
+            key = event.key()
+            modifiers = int(event.modifiers())
+            
+            if self.is_selecting_region and key == Qt.Key_Escape:
+                self.cancel_screenshot()
+                return True
+                
+            try:
+                def check_hotkey(action_name):
+                    hotkey_str = self.settings.get("hotkeys").get(action_name)
+                    if not hotkey_str: return False
+                    seq = QKeySequence(key | modifiers)
+                    return seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch or \
+                           (modifiers == 0 and key == QKeySequence(hotkey_str)[0])
+
+                if key == Qt.Key_Backspace: 
+                    self.undo()
+                    return True
+                elif check_hotkey("board_mode"): 
+                    if self.toolbar: self.toolbar.toggle_board()
+                    return True  # True döndürmek, butona tıklanmasını (tetiklenmesini) tamamen önler
+                elif check_hotkey("drawer"): 
+                    if self.toolbar: self.toolbar.toggle_drawer()
+                    return True
+                elif check_hotkey("undo"): 
+                    self.undo()
+                    return True
+                elif check_hotkey("quit"): 
+                    QApplication.quit()
+                    return True
+                elif check_hotkey("screenshot"): 
+                    self.take_screenshot()
+                    return True
+                elif check_hotkey("clear"): 
+                    self.clear_all()
+                    return True
+                elif check_hotkey("move_mode"): 
+                    if self.toolbar: self.toolbar.toggle_move_mode()
+                    return True
+                elif check_hotkey("color_picker"): 
+                    if self.toolbar: self.toolbar.select_color()
+                    return True
+            except Exception as e:
+                print(f"Kısayol hatası: {e}")
+                
+        return super().eventFilter(obj, event)
 
     def mousePressEvent(self, event):
         if self.is_selecting_region:

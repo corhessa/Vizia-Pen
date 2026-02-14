@@ -20,7 +20,6 @@ def resource_path(relative_path):
 # --- EK ARAÇLAR (DRAWER) ---
 class ExtensionDrawer(QWidget):
     def __init__(self, parent_toolbar):
-        # [EVLAT EDİNME] Çekmecenin ebeveynini Ana Çizim Ekranı (overlay) yaptık
         super().__init__(parent_toolbar.overlay) 
         self.toolbar_ref = parent_toolbar
         
@@ -52,24 +51,6 @@ class ExtensionDrawer(QWidget):
         self.anim = QPropertyAnimation(self, b"size")
         self.anim.setEasingCurve(QEasingCurve.OutExpo)
         self.anim.setDuration(300)
-        
-    def keyPressEvent(self, event):
-        key = event.key()
-        overlay = self.toolbar_ref.overlay
-        if overlay:
-            if key == Qt.Key_Backspace:
-                overlay.toolbar.toggle_board()
-                event.accept()
-                return
-
-            hotkey_str = overlay.settings.get("hotkeys").get("board_mode") 
-            if hotkey_str:
-                seq = QKeySequence(key)
-                if seq.matches(QKeySequence(hotkey_str)) == QKeySequence.ExactMatch:
-                    overlay.toolbar.toggle_board()
-                    event.accept() 
-                    return 
-        super().keyPressEvent(event)
 
     def create_drawer_btn(self, icon_path_or_name, tooltip, func):
         btn = QPushButton()
@@ -167,6 +148,7 @@ class ExtensionDrawer(QWidget):
             try: self.anim.finished.disconnect(self._on_close_finished)
             except: pass
 
+
 class ModernToolbar(QWidget):
     def __init__(self, overlay):
         super().__init__(overlay)
@@ -214,7 +196,11 @@ class ModernToolbar(QWidget):
         size_box = QFrame(); size_box.setFixedHeight(75); size_box.setStyleSheet("background: transparent; border: none;")
         size_layout = QVBoxLayout(size_box); size_layout.setContentsMargins(0, 0, 0, 0); size_layout.setSpacing(2) 
         lbl_size = QLabel("BOYUT"); lbl_size.setAlignment(Qt.AlignCenter); lbl_size.setStyleSheet("font-size: 10px; font-weight: 800; color: #ffffff; letter-spacing: 1px;"); size_layout.addWidget(lbl_size)
-        self.slider = QSlider(Qt.Horizontal); self.slider.setRange(2, 100); self.slider.setValue(4); self.slider.setFixedWidth(54); self.slider.valueChanged.connect(self.update_brush_size); size_layout.addWidget(self.slider, 0, Qt.AlignCenter)
+        
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setFocusPolicy(Qt.NoFocus) # [YENİ] Slider gizlice odak çalamayacak
+        self.slider.setRange(2, 100); self.slider.setValue(4); self.slider.setFixedWidth(54); self.slider.valueChanged.connect(self.update_brush_size); size_layout.addWidget(self.slider, 0, Qt.AlignCenter)
+        
         self.lbl_percent = QLabel("4%"); self.lbl_percent.setAlignment(Qt.AlignCenter); self.lbl_percent.setStyleSheet("font-size: 11px; color: #0a84ff; font-weight: bold;"); size_layout.addWidget(self.lbl_percent)
         layout.addWidget(size_box, 0, Qt.AlignCenter)
         
@@ -227,8 +213,12 @@ class ModernToolbar(QWidget):
         
         self.strip_container = QWidget(); self.strip_container.setFixedWidth(20) 
         strip_layout = QVBoxLayout(self.strip_container); strip_layout.setContentsMargins(0, 0, 0, 0); strip_layout.setSpacing(0); strip_layout.addStretch()
-        self.strip_btn = QPushButton(); self.strip_btn.setFixedSize(12, 120); self.strip_btn.setCursor(Qt.PointingHandCursor); self.strip_btn.clicked.connect(self.toggle_drawer); self.strip_btn.setToolTip("Ek Araçlar")
+        
+        self.strip_btn = QPushButton()
+        self.strip_btn.setFocusPolicy(Qt.NoFocus) # [YENİ] Çekmece butonu odak çalamayacak
+        self.strip_btn.setFixedSize(12, 120); self.strip_btn.setCursor(Qt.PointingHandCursor); self.strip_btn.clicked.connect(self.toggle_drawer); self.strip_btn.setToolTip("Ek Araçlar")
         self.strip_btn.setStyleSheet("QPushButton { background-color: #1c1c1e; border: 1.5px solid #3a3a3c; border-left: none; border-top-right-radius: 10px; border-bottom-right-radius: 10px; } QPushButton:hover { background-color: #2c2c2e; border-color: #007aff; }")
+        
         strip_layout.addWidget(self.strip_btn); strip_layout.addStretch()
         self.main_layout.addWidget(self.content_frame); self.main_layout.addWidget(self.strip_container)
 
@@ -237,7 +227,9 @@ class ModernToolbar(QWidget):
         icon_path = resource_path(f"Vizia/Assets/{icon_file}")
         if os.path.exists(icon_path): btn.setIcon(QIcon(icon_path)); btn.setIconSize(QSize(24, 24)) 
         else: btn.setText(tooltip_text[0] if tooltip_text else "?")
-        btn.clicked.connect(slot); btn.setFocusPolicy(Qt.NoFocus); btn.setFixedSize(40, 40)
+        btn.clicked.connect(slot)
+        btn.setFocusPolicy(Qt.NoFocus) # Güvence
+        btn.setFixedSize(40, 40)
         if tooltip_text: btn.setToolTip(tooltip_text)
         return btn
 
