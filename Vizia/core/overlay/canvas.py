@@ -1,3 +1,8 @@
+try:
+    import sip
+except ImportError:
+    import PyQt5.sip as sip
+
 from PyQt5.QtGui import QPainter, QPixmap, QPen, QColor, QPainterPath
 from PyQt5.QtCore import Qt, QRect
 
@@ -11,8 +16,31 @@ class CanvasLayer:
         self.history = [] 
         self.widgets = [] 
 
+    def cleanup_dead_widgets(self):
+        """[YENİ] C++ tarafında silinmiş (zombi) objeleri listelerden temizler"""
+        alive_widgets = []
+        for w in self.widgets:
+            try:
+                if not sip.isdeleted(w):
+                    alive_widgets.append(w)
+            except: pass
+        self.widgets = alive_widgets
+        
+        alive_history = []
+        for item in self.history:
+            if item.get('obj'):
+                try:
+                    if not sip.isdeleted(item['obj']):
+                        alive_history.append(item)
+                except: pass
+            else:
+                alive_history.append(item)
+        self.history = alive_history
+
     def clear(self):
         self.pixmap.fill(Qt.transparent)
+        self.cleanup_dead_widgets() # Temizlemeden önce zombileri at
+        
         # Widgetları kapat ve bellekten sil
         for item in self.history:
             if item.get('obj'):
@@ -25,10 +53,11 @@ class CanvasLayer:
         self.redraw()
 
     def undo(self):
+        self.cleanup_dead_widgets() # İşlem öncesi zombi kontrolü
         if not self.history: return
         last_item = self.history.pop()
         
-        # 5. Madde Çözümü: Geri alırken widget (şekil) ise yok et
+        # Geri alırken widget (şekil) ise yok et
         if last_item.get('type') in ['text', 'image', 'shape', 'geometry_shape']:
             if last_item.get('obj'): 
                 try: 
@@ -76,7 +105,7 @@ class CanvasLayer:
     def add_shape(self, shape_type, start, end, color, width):
         # Bu metod eski çizim şekilleri için (line, rect, ellipse - vektörel olmayan)
         self.history.append({
-            'type': 'legacy_shape', # type adını çakışmaması için değiştirdik
+            'type': 'legacy_shape', 
             'shape': shape_type, 
             'start': start, 
             'end': end, 
@@ -90,6 +119,7 @@ class CanvasLayer:
         self.history.append({'type': widget_type, 'obj': widget})
 
     def remove_widget_item(self, widget):
+        self.cleanup_dead_widgets()
         if widget in self.widgets: self.widgets.remove(widget)
         for i in range(len(self.history) - 1, -1, -1):
             if self.history[i].get('obj') == widget:
@@ -98,13 +128,12 @@ class CanvasLayer:
 
     def redraw(self):
         """History'den her şeyi baştan çizer"""
+        self.cleanup_dead_widgets() # Render öncesi güvenlik
         self.pixmap.fill(Qt.transparent)
         p = QPainter(self.pixmap)
         p.setRenderHint(QPainter.Antialiasing)
         
         for item in self.history:
-            # ÖNEMLİ DÜZELTME: Eğer item bir widget ise (obj anahtarı varsa) çizim yapma.
-            # Widgetlar zaten Qt tarafından kendi kendilerini çizerler.
             if item.get('obj'):
                 continue
 
@@ -118,7 +147,6 @@ class CanvasLayer:
                 p.setPen(QPen(item['color'], item['width'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.drawPath(item['path'])
                 
-            # Legacy Shape desteği (eski tip şekiller için)
             elif item.get('type') == 'legacy_shape' or (item.get('type') == 'shape' and 'color' in item):
                 p.setCompositionMode(QPainter.CompositionMode_SourceOver)
                 p.setPen(QPen(item['color'], item['width']))

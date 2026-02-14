@@ -1,3 +1,8 @@
+try:
+    import sip
+except ImportError:
+    import PyQt5.sip as sip
+
 from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog
 from PyQt5.QtGui import QPainter, QPen, QColor, QKeySequence, QCursor, QPainterPath, QRegion
 from PyQt5.QtCore import Qt, QPoint, QTimer, QRect, QMimeData
@@ -7,7 +12,6 @@ from core.screenshot import ScreenshotManager
 from core.plugin_window_manager import PluginWindowManager
 from .canvas import CanvasLayer
 
-# UI Widget Importları
 from ui.widgets.notification import ModernNotification
 from ui.widgets.image_item import ViziaImageItem
 from ui.text_widgets import ViziaTextItem 
@@ -21,19 +25,15 @@ class DrawingOverlay(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        # 1. Drag & Drop Desteğini Aç
         self.setAcceptDrops(True)
-        # Eklentilerin drop olaylarını dinlemesi için liste
         self.drop_handlers = []
 
         self.showFullScreen()
         
-        # --- Canvas Yönetimi ---
         screen_size = QApplication.primaryScreen().size()
         self.desktop_layer = CanvasLayer(screen_size)
         self.board_layer = CanvasLayer(screen_size)
         
-        # Varsayılan değerler
         self._whiteboard_mode = False
         self.active_layer = self.desktop_layer 
         self.drawing_mode = "pen"
@@ -60,10 +60,17 @@ class DrawingOverlay(QMainWindow):
         self._whiteboard_mode = value
         self.active_layer = self.board_layer if value else self.desktop_layer
         
+        # [ÇÖKME FİXİ] Zombi objeleri temizleyip hata anında atlıyoruz
+        self.desktop_layer.cleanup_dead_widgets()
+        self.board_layer.cleanup_dead_widgets()
+        
         for w in self.desktop_layer.widgets:
-            w.setVisible(not value)
+            try: w.setVisible(not value)
+            except RuntimeError: pass
+            
         for w in self.board_layer.widgets:
-            w.setVisible(value)
+            try: w.setVisible(value)
+            except RuntimeError: pass
             
         self.plugin_windows.on_mode_changed(value)
         self.update()
@@ -108,7 +115,6 @@ class DrawingOverlay(QMainWindow):
             self.activateWindow()
             self.setFocus()
 
-    # --- DRAG & DROP EVENTLARI ---
     def dragEnterEvent(self, event):
         mime = event.mimeData()
         accepted = False
@@ -179,8 +185,11 @@ class DrawingOverlay(QMainWindow):
 
     def mouseMoveEvent(self, event):
         if self.is_selecting_region: 
+            # [PERFORMANS] Tüm ekranı değil sadece seçilen kutuyu yenile
+            old_rect = QRect(self.select_start, self.select_end).normalized()
             self.select_end = event.pos()
-            self.update()
+            new_rect = QRect(self.select_start, self.select_end).normalized()
+            self.update(old_rect.united(new_rect).adjusted(-2, -2, 2, 2))
             return 
         
         if not self.drawing: 
@@ -196,9 +205,14 @@ class DrawingOverlay(QMainWindow):
             
             self.active_layer.draw_segment(self.last_point, new_point, self.current_color, self.brush_size, self.drawing_mode, self._whiteboard_mode)
             
-            self.last_point = new_point
+            # [PERFORMANS] Titremeyi önlemek için sadece fırçanın değdiği noktayı güncelle
+            update_rect = QRect(self.last_point, new_point).normalized()
+            update_rect.adjust(-self.brush_size - 5, -self.brush_size - 5, self.brush_size + 5, self.brush_size + 5)
+            self.update(update_rect)
             
-        self.update()
+            self.last_point = new_point
+        else:
+            self.update()
 
     def mouseReleaseEvent(self, event):
         if self.is_selecting_region:
@@ -224,13 +238,16 @@ class DrawingOverlay(QMainWindow):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.HighQualityAntialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         
-        p.fillRect(self.rect(), Qt.white if self._whiteboard_mode else QColor(0,0,0,1))
-        p.drawPixmap(0, 0, self.active_layer.pixmap)
+        # [PERFORMANS] Sisteme sadece güncellenen (dirty) bölgeyi boyamasını söylüyoruz
+        rect = event.rect()
+        p.setClipRect(rect)
+        
+        p.fillRect(rect, Qt.white if self._whiteboard_mode else QColor(0,0,0,1))
+        p.drawPixmap(rect, self.active_layer.pixmap, rect)
         
         if self.drawing and self.drawing_mode in ["line", "rect", "ellipse"]:
             p.setPen(QPen(self.current_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -247,7 +264,6 @@ class DrawingOverlay(QMainWindow):
             p.setClipRegion(QRegion(r).subtracted(QRegion(s))); p.fillRect(r, QColor(0,0,0,80)); p.setClipRegion(QRegion(r))
             p.setPen(QPen(Qt.white, 2, Qt.DashLine)); p.setBrush(Qt.NoBrush); p.drawRect(s)
 
-    # --- Araçlar ---
     def undo(self):
         self.active_layer.undo()
         self.update()
@@ -259,20 +275,22 @@ class DrawingOverlay(QMainWindow):
     def add_text(self):
         txt = ViziaTextItem(self, self._whiteboard_mode, self.current_color)
         txt.move(100,100)
-        txt.delete_requested.connect(lambda w: [self.active_layer.remove_widget_item(w), w.deleteLater()])
+        txt.delete_requested.connect(lambda w: [self.remove_from_history(w), w.deleteLater()])
         self.active_layer.add_widget_item(txt, 'text')
 
     def open_image_loader(self):
         path, _ = QFileDialog.getOpenFileName(self, "Görsel", "", "Resim (*.png *.jpg)")
         if path:
             img = ViziaImageItem(path, self._whiteboard_mode, self)
-            img.request_close.connect(lambda w: [self.active_layer.remove_widget_item(w), w.deleteLater()])
+            img.request_close.connect(lambda w: [self.remove_from_history(w), w.deleteLater()])
             img.request_stamp.connect(lambda: self.stamp_image(img))
             self.active_layer.add_widget_item(img, 'image')
         self.force_focus()
 
     def remove_from_history(self, widget):
-        self.active_layer.remove_widget_item(widget)
+        try:
+            self.active_layer.remove_widget_item(widget)
+        except RuntimeError: pass
 
     def stamp_image(self, widget):
         if not widget or not widget.isVisible(): return
@@ -290,7 +308,6 @@ class DrawingOverlay(QMainWindow):
         except Exception as e: 
             print(f"Resim damgalama hatası: {e}")
 
-    # --- Screenshot ---
     def take_screenshot(self):
         if self.toolbar: self.toolbar.hide()
         self.drawing = False; self.is_selecting_region = True

@@ -174,12 +174,13 @@ class ExtensionDrawer(QWidget):
         content_height = self.layout.sizeHint().height() + 20
         if not self.is_open:
             self.is_open = True; self.show(); self.raise_()
-            self.container.resize(self.target_width, content_height); self.resize(0, content_height)
+            # [SİSTEM HATASI FİXİ] Windows UpdateLayeredWindowIndirect çökmesini engellemek için "0" olan başlangıç genişliğini "1" yaptık.
+            self.container.resize(self.target_width, content_height); self.resize(1, content_height)
             self.update_position()
-            self.anim.setStartValue(QSize(0, content_height)); self.anim.setEndValue(QSize(self.target_width, content_height)); self.anim.start()
+            self.anim.setStartValue(QSize(1, content_height)); self.anim.setEndValue(QSize(self.target_width, content_height)); self.anim.start()
         else:
             self.is_open = False
-            self.anim.setStartValue(self.size()); self.anim.setEndValue(QSize(0, content_height)); self.anim.finished.connect(self._on_close_finished); self.anim.start()
+            self.anim.setStartValue(self.size()); self.anim.setEndValue(QSize(1, content_height)); self.anim.finished.connect(self._on_close_finished); self.anim.start()
 
     def _on_close_finished(self):
         if not self.is_open:
@@ -273,19 +274,46 @@ class ModernToolbar(QWidget):
         QTimer.singleShot(10, self.overlay.force_focus)
     def update_color_btn_style(self): self.btn_color.setStyleSheet(get_color_btn_style(self.overlay.current_color.name()))
     def update_brush_size(self, val): self.overlay.brush_size = val; self.lbl_percent.setText(f"{val}%")
+    
     def toggle_board(self):
         self.overlay.whiteboard_mode = not self.overlay.whiteboard_mode
         self.btn_board.setProperty("state", "green" if self.overlay.whiteboard_mode else "red")
-        self.btn_board.style().unpolish(self.btn_board); self.btn_board.style().polish(self.btn_board)
-        self.overlay.redraw_canvas(); QTimer.singleShot(10, self.overlay.force_focus)
+        self.btn_board.style().unpolish(self.btn_board)
+        self.btn_board.style().polish(self.btn_board)
+        # [DÜZELTME] Anında tepki için render zorlaması
+        self.btn_board.repaint() 
+        QApplication.processEvents()
+        
+        self.overlay.redraw_canvas()
+        QTimer.singleShot(10, self.overlay.force_focus)
+        
     def toggle_move_mode(self):
-        if self.overlay.drawing_mode != "move": self.last_active_tool = self.overlay.drawing_mode; self.safe_change("move", self.btn_move)
-        else: target_btn = self.btn_draw if self.last_active_tool == "pen" else self.btn_eraser; self.safe_change(self.last_active_tool, target_btn)
+        if self.overlay.drawing_mode != "move": 
+            self.last_active_tool = self.overlay.drawing_mode
+            self.safe_change("move", self.btn_move)
+        else: 
+            target_btn = self.btn_draw if self.last_active_tool == "pen" else self.btn_eraser
+            self.safe_change(self.last_active_tool, target_btn)
+            
     def safe_change(self, mode, button):
         self.overlay.drawing_mode = mode
-        for b in [self.btn_draw, self.btn_move, self.btn_eraser]: b.setProperty("active", False); b.style().unpolish(b); b.style().polish(b)   
-        button.setProperty("active", True); button.style().unpolish(button); button.style().polish(button)
-        self.overlay.setWindowFlag(Qt.WindowTransparentForInput, mode == "move"); self.overlay.show(); QTimer.singleShot(10, self.overlay.force_focus)
+        for b in [self.btn_draw, self.btn_move, self.btn_eraser]: 
+            b.setProperty("active", False)
+            b.style().unpolish(b)
+            b.style().polish(b)
+            b.repaint() # Eski mavi rengi hemen sil   
+            
+        button.setProperty("active", True)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        # [DÜZELTME] Yeni mavi efekti gecikmesiz göster
+        button.repaint()
+        QApplication.processEvents()
+        
+        self.overlay.setWindowFlag(Qt.WindowTransparentForInput, mode == "move")
+        self.overlay.show()
+        QTimer.singleShot(10, self.overlay.force_focus)
+        
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton: self.old_pos = event.globalPos()
     def mouseMoveEvent(self, event):

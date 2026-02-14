@@ -20,7 +20,10 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(400, 520)
+        
+        # [DÜZELTME] setFixedSize iptal edildi, minimumSize ile Windows hatası giderildi.
+        self.setMinimumSize(400, 520)
+        self.resize(400, 520)
         self.old_pos = None
 
         layout = QVBoxLayout(self)
@@ -143,10 +146,19 @@ class AboutDialog(QDialog):
 
     # Pencere Sürükleme
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton: self.old_pos = event.globalPos()
+        # [DÜZELTME] Sürükleme işlemi sırasında butonun çalışmasını engellememesi için hitbox kontrolü
+        child = self.childAt(event.pos())
+        if isinstance(child, QPushButton):
+            return  # Eğer tıklanan yer bir butonsa sürükleme eventini çalıştırma
+            
+        if event.button() == Qt.LeftButton: 
+            self.old_pos = event.globalPos()
+            
     def mouseMoveEvent(self, event):
         if self.old_pos:
             delta = event.globalPos() - self.old_pos
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.old_pos = event.globalPos()
-    def mouseReleaseEvent(self, event): self.old_pos = None
+            
+    def mouseReleaseEvent(self, event): 
+        self.old_pos = None

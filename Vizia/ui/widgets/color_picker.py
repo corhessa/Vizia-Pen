@@ -87,7 +87,8 @@ class ModernColorPicker(QDialog):
         btn = QPushButton(); btn.setFixedSize(28, 28); btn.setCursor(Qt.PointingHandCursor)
         border = "#3a3a3c" if empty else "#007aff"
         btn.setStyleSheet(f"background-color: {color_hex}; border-radius: 4px; border: 1.5px solid {border};")
-        if not empty: btn.clicked.connect(lambda: self.set_direct_color(QColor(color_hex)))
+        # Güvenli lambda bağlaması
+        if not empty: btn.clicked.connect(lambda checked=False, c=color_hex: self.set_direct_color(QColor(c)))
         return btn
 
     def get_toolbar(self):
@@ -98,29 +99,55 @@ class ModernColorPicker(QDialog):
         return self.parent_context
 
     def add_to_custom(self):
-        toolbar = self.get_toolbar()
-        if toolbar:
-            idx = toolbar.custom_color_index
-            color_hex = self.selected_color.name()
-            self.persistent_colors[idx] = color_hex
-            chip = self.custom_chips[idx]
-            chip.setStyleSheet(f"background-color: {color_hex}; border-radius: 4px; border: 1.5px solid #007aff;")
+        color_hex = self.selected_color.name()
+        empty_color = "#2c2c2e"
+        
+        # 1. Aynı renk zaten paletimizde varsa tekrar ekleme
+        if color_hex in self.persistent_colors:
+            return 
+            
+        # 2. İlk boş slotu bul
+        target_idx = -1
+        for i in range(10):
+            if self.persistent_colors[i] == empty_color:
+                target_idx = i
+                break
+                
+        # 3. Eğer boş slot varsa oraya koy, yoksa FIFO (kuyruk) yap
+        if target_idx != -1:
+            self.persistent_colors[target_idx] = color_hex
+        else:
+            self.persistent_colors.pop(0)  # En eskisini sil
+            self.persistent_colors.append(color_hex)  # Yeni olanı sona ekle
+            
+        # 4. Arayüzü baştan çizmeden sadece butonların stilini ve işlevini güncelle
+        for i in range(10):
+            chip = self.custom_chips[i]
+            c_hex = self.persistent_colors[i]
+            
             try: chip.clicked.disconnect()
             except: pass
-            chip.clicked.connect(lambda _, c=color_hex: self.set_direct_color(QColor(c)))
-            toolbar.custom_color_index = (idx + 1) % 10
-            if self.settings_manager:
-                self.settings_manager.set("custom_colors", self.persistent_colors)
+            
+            if c_hex == empty_color:
+                chip.setStyleSheet("background-color: #2c2c2e; border-radius: 4px; border: 1.5px solid #3a3a3c;")
+            else:
+                chip.setStyleSheet(f"background-color: {c_hex}; border-radius: 4px; border: 1.5px solid #007aff;")
+                chip.clicked.connect(lambda checked=False, c=c_hex: self.set_direct_color(QColor(c)))
+
+        # 5. Ayarları kaydet
+        if self.settings_manager:
+            self.settings_manager.set("custom_colors", self.persistent_colors)
 
     def reset_custom(self):
-        toolbar = self.get_toolbar()
+        empty_color = "#2c2c2e"
         for i in range(10):
-            self.persistent_colors[i] = "#2c2c2e"
+            self.persistent_colors[i] = empty_color
             chip = self.custom_chips[i]
             chip.setStyleSheet("background-color: #2c2c2e; border-radius: 4px; border: 1.5px solid #3a3a3c;")
             try: chip.clicked.disconnect()
             except: pass
-        if toolbar: toolbar.custom_color_index = 0
+            
+        # Sıfırlama işleminden sonra ayarları kaydet
         if self.settings_manager:
             self.settings_manager.set("custom_colors", self.persistent_colors)
 
