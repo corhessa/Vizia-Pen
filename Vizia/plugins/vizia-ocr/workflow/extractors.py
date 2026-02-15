@@ -1,27 +1,38 @@
 import fitz  # PyMuPDF
+import docx
 
-class FileExtractor:
-    def extract(self, file_path):
+class DocumentExtractor:
+    @staticmethod
+    def extract(file_path, include_images=False):
+        """Dosyayı okur ve metin/görsel parçalarını (element listesi) döndürür."""
         ext = file_path.lower().split('.')[-1]
-        if ext == 'pdf':
-            return self._extract_pdf(file_path)
-        elif ext == 'txt':
-            return self._extract_txt(file_path)
-        return ""
+        elements = []
 
-    def _extract_pdf(self, path):
-        text = ""
         try:
-            doc = fitz.open(path)
-            for page in doc:
-                text += page.get_text() + "\n"
+            if ext == 'txt':
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    elements.append({"type": "text", "content": f.read()})
+            
+            elif ext == 'docx':
+                doc = docx.Document(file_path)
+                for para in doc.paragraphs:
+                    if para.text.strip():
+                        elements.append({"type": "text", "content": para.text})
+            
+            elif ext == 'pdf':
+                doc = fitz.open(file_path)
+                for page in doc:
+                    text = page.get_text()
+                    if text.strip():
+                        # Kırık satırları birleştirip anlam bütünlüğünü (çeviri kalitesini) koruyoruz
+                        clean_text = text.replace('-\n', '').replace('\n', ' ')
+                        elements.append({"type": "text", "content": clean_text})
+                    
+                    if include_images:
+                        for img in page.get_images():
+                            base_image = doc.extract_image(img[0])
+                            elements.append({"type": "image", "data": base_image["image"], "ext": base_image["ext"]})
         except Exception as e:
-            print(f"PDF Okuma Hatası: {e}")
-        return text
-
-    def _extract_txt(self, path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except:
-            return ""
+            print(f"Okuma/Çıkarma Hatası: {e}")
+            
+        return elements
