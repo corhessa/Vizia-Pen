@@ -77,12 +77,22 @@ class ViziaPlugin(QObject):
 
     def start_ocr_scan(self):
         overlay = self.current_overlay
-        if overlay.toolbar: overlay.toolbar.hide()
         
-        # 4. MOUSE MODU FIX (GİRİŞ): Eğer kullanıcı Mouse modundaysa tıklamalar alt ekrana geçiyordur.
-        # Tarama yapabilmesi için tıklama geçirmeyi geçici olarak iptal ediyoruz.
-        overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
-        
+        # 1. KESİN ÇÖZÜM: Eğer Fare (Mouse) modundaysa, Vizia'nın kendi Toolbar'ı
+        # üzerinden Kalem moduna geçmeye zorluyoruz. Bu sayede 'Hayalet Ekran'
+        # bayrağı (WindowTransparentForInput) resmen kapatılır ve ekran tıklanabilir olur.
+        if getattr(overlay, 'drawing_mode', '') == "move":
+            if overlay.toolbar:
+                # Güvenli bir şekilde kalem moduna geçir ve butonları güncelle
+                overlay.toolbar.safe_change("pen", overlay.toolbar.btn_draw)
+                
+        # 2. ÇEKMECE VE TOOLBAR GİZLEME
+        if overlay.toolbar:
+            overlay.toolbar.hide()
+            if hasattr(overlay.toolbar, 'drawer') and overlay.toolbar.drawer:
+                overlay.toolbar.drawer.hide()
+                overlay.toolbar.drawer.is_open = False 
+                
         overlay.drawing = False
         overlay.is_selecting_region = True
         overlay.select_start = QPoint()
@@ -101,13 +111,9 @@ class ViziaPlugin(QObject):
         overlay.is_selecting_region = False
         overlay.setCursor(Qt.ArrowCursor)
         
-        # 5. MOUSE MODU FIX (ÇIKIŞ): Tarama bittiğinde eğer araç hala "move" (Mouse) modundaysa,
-        # tıklamaları Windows'a geçirme özelliğini geri açıyoruz.
-        if overlay.drawing_mode == "move":
-            overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            
         overlay.update()
-        if overlay.toolbar: overlay.toolbar.show()
+        if overlay.toolbar: 
+            overlay.toolbar.show()
         
         if crop_rect and crop_rect.width() > 5 and crop_rect.height() > 5:
             overlay.show_toast("Taranıyor...")
