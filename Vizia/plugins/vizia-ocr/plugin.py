@@ -5,36 +5,35 @@ from PyQt5.QtCore import QObject, QEvent, Qt, QPoint
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtGui import QCursor
 
-# --- KRİTİK DÜZELTME: Eklenti dizinini Python yoluna ekle ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Artık başındaki noktalar (.) olmadan doğrudan klasör adıyla çağırabiliriz
 from lens_ui.main_panel import ViziaLensPanel
 from lens_ui.result_widget import LensResultWidget
 from lens_core.ocr_engine import ViziaOCREngine
 from lens_core.translator import ViziaTranslator
-
-# ... kodun geri kalanı aynı (class ViziaPlugin...)
+from lens_core.config import load_config, save_config
 
 class ViziaPlugin(QObject):
     def __init__(self):
         super().__init__()
-        self.name = "Vizia Lens & Transcribe"
-        self.icon = "assets/lens.png" # assets klasörüne bir lens.png eklemelisin
+        self.name = "Vizia lens & dosya düzenleyici"
+        # 1. İKON FIX: Vizia çekmecesi ikonu bulabilsin diye tam dosya yolu (Absolute Path) verdik.
+        self.icon = os.path.join(current_dir, "assets", "generative-image.png")
         
         self.panel = None
-        self.quick_scan_enabled = False
         self.current_overlay = None
         self.original_finalize = None
         self.button_hooked = False
         
         self.ocr_engine = ViziaOCREngine()
         self.translator = ViziaTranslator()
+        
+        self.config = load_config()
+        self.quick_scan_enabled = self.config.get("quick_scan", False)
 
     def run(self, overlay):
-        """Toolbar'daki butona SOL tıklandığında çalışır"""
         self.current_overlay = overlay
         self._hook_right_click(overlay)
 
@@ -44,20 +43,20 @@ class ViziaPlugin(QObject):
             self.open_settings_panel()
 
     def _hook_right_click(self, overlay):
-        """Butona sağ tıklandığını algılamak için EventFilter ekler"""
         if self.button_hooked or not hasattr(overlay, 'toolbar') or not overlay.toolbar:
             return
             
         drawer = overlay.toolbar.drawer
         for i in range(drawer.layout.count()):
             widget = drawer.layout.itemAt(i).widget()
+            # 2. TOOLTIP FIX: İsim eşleşmesini yakalayıp Tooltip'i zorla istediğimiz yazıya ayarlıyoruz.
             if isinstance(widget, QPushButton) and widget.toolTip() == self.name:
                 widget.installEventFilter(self)
+                widget.setToolTip("Vizia lens & dosya düzenleyici")
                 self.button_hooked = True
                 break
 
     def eventFilter(self, obj, event):
-        """Sağ tıklamayı yakalar ve her zaman paneli açar"""
         if event.type() == QEvent.MouseButtonPress and event.button() == Qt.RightButton:
             if self.current_overlay:
                 self.open_settings_panel()
@@ -67,13 +66,22 @@ class ViziaPlugin(QObject):
     def open_settings_panel(self):
         if not self.panel:
             self.panel = ViziaLensPanel(self, self.current_overlay)
+            # 3. ETKİLEŞİM FIX: Paneli, Vizia'nın "Korunan Arayüzler" listesine ekliyoruz.
+            # Artık kalemle üstüne çizilmeyecek, direkt tıklanıp sürüklenebilecek.
+            if hasattr(self.current_overlay, 'plugin_windows'):
+                self.current_overlay.plugin_windows.register(self.panel)
+                
         self.panel.show()
         self.panel.raise_()
+        self.panel.activateWindow()
 
     def start_ocr_scan(self):
-        """window.py'daki ekran alıntısı mekanizmasını geçici olarak OCR için kullanır"""
         overlay = self.current_overlay
         if overlay.toolbar: overlay.toolbar.hide()
+        
+        # 4. MOUSE MODU FIX (GİRİŞ): Eğer kullanıcı Mouse modundaysa tıklamalar alt ekrana geçiyordur.
+        # Tarama yapabilmesi için tıklama geçirmeyi geçici olarak iptal ediyoruz.
+        overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         
         overlay.drawing = False
         overlay.is_selecting_region = True
@@ -82,19 +90,22 @@ class ViziaPlugin(QObject):
         overlay.setCursor(Qt.CrossCursor)
         overlay.show_toast("<center>OCR için metni seçin<br><span style='font-size: 12px; color: #a1a1a6;'>(Sağ Tık: Ayarlar | Çıkmak için ESC)</span></center>")
         
-        # Monkey-Patch: Geçici olarak ekran kaydetme fonksiyonunu kendi fonksiyonumuzla değiştiriyoruz
         self.original_finalize = overlay._finalize_screenshot
         overlay._finalize_screenshot = self.ocr_finalize_override
         overlay.update()
 
     def ocr_finalize_override(self, crop_rect=None):
-        """Seçim bittiğinde tetiklenir"""
         overlay = self.current_overlay
         
-        # Orijinal fonksiyonu derhal geri yükle
         overlay._finalize_screenshot = self.original_finalize
         overlay.is_selecting_region = False
         overlay.setCursor(Qt.ArrowCursor)
+        
+        # 5. MOUSE MODU FIX (ÇIKIŞ): Tarama bittiğinde eğer araç hala "move" (Mouse) modundaysa,
+        # tıklamaları Windows'a geçirme özelliğini geri açıyoruz.
+        if overlay.drawing_mode == "move":
+            overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            
         overlay.update()
         if overlay.toolbar: overlay.toolbar.show()
         
@@ -112,9 +123,14 @@ class ViziaPlugin(QObject):
         text = self.ocr_engine.extract_text(temp_path, lang="tur+eng")
         
         if text.strip():
-            # Artık basit bir bildirim (toast) göstermek yerine, 
-            # Google Lens tarzı özel widget'ımızı ekranda o bölgede açıyoruz.
-            self.result_widget = LensResultWidget(text, crop_rect, self.translator)
+            self.result_widget = LensResultWidget(text, crop_rect, self)
+            
+            # SONUÇ PANELİ ETKİLEŞİM FIX: Sonuç widget'ını da korunan arayüzlere ekliyoruz.
+            if hasattr(self.current_overlay, 'plugin_windows'):
+                self.current_overlay.plugin_windows.register(self.result_widget)
+                
             self.result_widget.show()
+            self.result_widget.raise_()
+            self.result_widget.activateWindow()
         else:
             self.current_overlay.show_toast("Metin algılanamadı.")
