@@ -12,6 +12,7 @@ if current_dir not in sys.path:
 
 # Artık başındaki noktalar (.) olmadan doğrudan klasör adıyla çağırabiliriz
 from lens_ui.main_panel import ViziaLensPanel
+from lens_ui.result_widget import LensResultWidget
 from lens_core.ocr_engine import ViziaOCREngine
 from lens_core.translator import ViziaTranslator
 
@@ -105,16 +106,15 @@ class ViziaPlugin(QObject):
         from PyQt5.QtWidgets import QApplication
         pixmap = QApplication.primaryScreen().grabWindow(0).copy(crop_rect)
         
-        # Geçici dosyaya kaydet ve OCR'a yolla
         temp_path = os.path.join(tempfile.gettempdir(), "vizia_ocr_temp.png")
         pixmap.save(temp_path, "png")
         
-        # Basit bir dil yönetimi (Panelden seçilen dili alacak şekilde geliştirilebilir)
         text = self.ocr_engine.extract_text(temp_path, lang="tur+eng")
         
         if text.strip():
-            translated = self.translator.translate(text, target="tr")
-            # Sonucu ekranda göster
-            self.current_overlay.show_toast(f"<b>Metin:</b> {text}<br><b>Çeviri:</b> {translated}")
+            # Artık basit bir bildirim (toast) göstermek yerine, 
+            # Google Lens tarzı özel widget'ımızı ekranda o bölgede açıyoruz.
+            self.result_widget = LensResultWidget(text, crop_rect, self.translator)
+            self.result_widget.show()
         else:
             self.current_overlay.show_toast("Metin algılanamadı.")
